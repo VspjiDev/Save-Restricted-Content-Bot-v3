@@ -128,7 +128,7 @@ To run the bot, you'll need to configure a few sensitive variables. Here's how t
 <summary><b>Deploy on Heroku</b></summary>
 
 1. Fork and Star the repo.
-2. Click [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://www.heroku.com/deploy).
+2. Click [![Deploy to Heroku](https://img.shields.io/badge/Deploy%20to-Heroku-purple?style=for-the-badge&logo=heroku)](https://www.heroku.com/deploy?template=https://github.com/VspjiDev/Save-Restricted-Content-Bot-v3)
 3. Enter required variables and click deploy ✅.
 
 </details>
