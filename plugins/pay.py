@@ -70,8 +70,8 @@ async def sp(c, m):
             f"⏰ Till: {d} IST\n"
             f"🔖 Txn: `{p.telegram_payment_charge_id}`"
         )
-      for o in OWNER_ID:
-        await c.send_message(f"User {u} just purchased the premium, txn id is {p.telegram_payment_charge_id}.")
+        for o in OWNER_ID:
+            await c.send_message(f"User {u} just purchased the premium, txn id is {p.telegram_payment_charge_id}.")
     else:
         await m.reply_text(
             f"⚠️ Paid but premium failed.\nTxn `{p.telegram_payment_charge_id}`"
@@ -80,4 +80,5 @@ async def sp(c, m):
             await c.send_message(o,
                 f"⚠️ Issue!\nUser {u}\nPlan {pi['l']}\nTxn {p.telegram_payment_charge_id}\nErr {r}"
             )
+
 
