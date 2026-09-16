@@ -8,6 +8,7 @@ from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarku
 
 from config import BRAND, FORCE_SUB, JOIN_LINK, OWNER_ID, TURBO_DISABLED, TURBO_STREAMS, WORKERS
 from shared_client import app
+from utils import turbo
 from utils.func import get_user_data
 
 
@@ -104,13 +105,13 @@ async def show_help(client, query):
 @app.on_message(filters.command('status') & filters.private)
 async def status_handler(client, message):
     data = await get_user_data(message.from_user.id, cached=False) or {}
-    engine = f'{TURBO_STREAMS} streams/file' if not TURBO_DISABLED else 'off'
+    engine = turbo.status_line() if not TURBO_DISABLED else 'disabled by config'
     await message.reply_text(
         f'**{BRAND} — your status**\n\n'
         f"**Login:** {'✅ Active' if data.get('session_string') else '❌ Inactive'}\n"
         f"**Target chat:** `{data.get('chat_id') or 'this chat'}`\n"
-        f'**Turbo engine:** {engine}\n'
-        f'**Parallel files:** {WORKERS}'
+        f'**Parallel files:** {WORKERS}  ·  **Streams/file:** {TURBO_STREAMS}\n'
+        f'**Turbo engine:** {engine}'
     )
 
 

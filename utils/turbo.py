@@ -48,6 +48,25 @@ BIG_FILE_THRESHOLD = 10 * 1024 * 1024
 _pools = {}
 _pool_lock = asyncio.Lock()
 
+# Why turbo last declined, so a slow run can be explained instead of guessed at.
+STATE = {'ready': False, 'streams': 0, 'dc': None, 'last_error': None, 'fallbacks': 0}
+
+
+def note_failure(reason):
+    STATE['last_error'] = reason
+    STATE['fallbacks'] += 1
+    log.warning(f'turbo fell back to pyrogram -> {reason}')
+
+
+def status_line():
+    if STATE['ready']:
+        line = f"✅ {STATE['streams']} streams on DC {STATE['dc']}"
+    else:
+        line = '❌ not active (using plain pyrogram)'
+    if STATE['last_error']:
+        line += f"\nLast fallback ({STATE['fallbacks']}x): `{STATE['last_error'][:160]}`"
+    return line
+
 
 def _pwrite(fd, data, offset):
     if hasattr(os, 'pwrite'):
@@ -99,26 +118,34 @@ class Pool:
                 auth_key = await Auth(self.client, self.dc_id, test_mode).create()
 
             sessions = []
-            try:
-                for index in range(self.size):
+            for index in range(self.size):
+                try:
                     session = Session(self.client, self.dc_id, auth_key, test_mode, is_media=True)
                     await session.start()
 
                     # The whole pool shares one auth key, so the key only has to
-                    # be authorised on the foreign DC once.
+                    # be authorised on the foreign DC once - but it must succeed,
+                    # or none of the others can read anything.
                     if self.dc_id != home and index == 0:
                         await self._authorise(session)
 
                     sessions.append(session)
-            except Exception:
-                for session in sessions:
-                    try:
-                        await session.stop()
-                    except Exception:
-                        pass
-                raise
+                except Exception as e:
+                    if index == 0:
+                        for opened in sessions:
+                            try:
+                                await opened.stop()
+                            except Exception:
+                                pass
+                        raise
+                    # A few connections short is still much faster than one.
+                    log.warning(f'turbo: only {len(sessions)}/{self.size} streams on '
+                                f'DC {self.dc_id} ({type(e).__name__}: {e})')
+                    break
 
             self.sessions = sessions
+            STATE.update({'ready': True, 'streams': len(sessions), 'dc': self.dc_id})
+            log.info(f'turbo pool ready: {len(sessions)} streams on DC {self.dc_id}')
             return sessions
 
     async def _authorise(self, session):
@@ -197,13 +224,22 @@ async def turbo_download(client, message, dest, streams, progress=None, progress
     if not media or file_size < MIN_TURBO_SIZE:
         return None
 
+    # Everything below has to stay inside a guard. Returning None means "use
+    # pyrogram instead"; anything that escapes this function instead becomes a
+    # failed post, and the media silently never arrives.
     try:
         file_id = FileId.decode(media.file_id)
-    except Exception:
+        location = _location(file_id)
+        sessions = await get_pool(client, file_id.dc_id, streams)
+    except Exception as e:
+        note_failure(f'pool/setup: {type(e).__name__}: {e}')
         return None
 
-    location = _location(file_id)
-    sessions = await get_pool(client, file_id.dc_id, streams)
+    if not sessions:
+        # With no connections the loop below would write nothing and still
+        # report success, handing back a file of the right size full of zeros.
+        note_failure('pool/setup: no usable connections')
+        return None
 
     total_parts = math.ceil(file_size / DOWNLOAD_PART)
     parts = iter(range(total_parts))
@@ -261,13 +297,15 @@ async def turbo_download(client, message, dest, streams, progress=None, progress
 
         if failure is not None:
             raise failure
+        if moved < file_size:
+            raise RuntimeError(f'incomplete: got {moved} of {file_size} bytes')
     except Exception as e:
         os.close(fd)
         try:
             os.remove(dest)
         except OSError:
             pass
-        log.warning(f'turbo download fell back to pyrogram: {e}')
+        note_failure(f'download: {type(e).__name__}: {e}')
         return None
     else:
         os.close(fd)
@@ -290,8 +328,16 @@ async def turbo_upload(client, path, streams, progress=None, progress_args=()):
     if total_parts > MAX_PARTS:
         return None
 
-    home = await client.storage.dc_id()
-    sessions = await get_pool(client, home, streams)
+    try:
+        home = await client.storage.dc_id()
+        sessions = await get_pool(client, home, streams)
+    except Exception as e:
+        note_failure(f'upload pool: {type(e).__name__}: {e}')
+        return None
+
+    if not sessions:
+        note_failure('upload pool: no usable connections')
+        return None
 
     file_id = client.rnd_id()
     parts = iter(range(total_parts))
@@ -341,8 +387,10 @@ async def turbo_upload(client, path, streams, progress=None, progress_args=()):
 
         if failure is not None:
             raise failure
+        if moved < file_size:
+            raise RuntimeError(f'incomplete: sent {moved} of {file_size} bytes')
     except Exception as e:
-        log.warning(f'turbo upload fell back to pyrogram: {e}')
+        note_failure(f'upload: {type(e).__name__}: {e}')
         return None
     finally:
         os.close(fd)
@@ -373,7 +421,7 @@ def install(client, streams):
                 if result is not None:
                     return result
             except Exception as e:
-                log.warning(f'turbo upload error, using pyrogram: {e}')
+                note_failure(f'save_file: {type(e).__name__}: {e}')
         return await original(
             path, file_id=file_id, file_part=file_part,
             progress=progress, progress_args=progress_args,
@@ -381,3 +429,23 @@ def install(client, streams):
 
     client.save_file = save_file
     client._turbo_installed = True
+
+
+async def warmup(client, streams):
+    """Build the home-DC pool at startup.
+
+    Without this a broken turbo is invisible: it just declines quietly on every
+    transfer and everything runs at plain pyrogram speed. Doing it once up front
+    puts the answer in the first few lines of the log.
+    """
+    try:
+        dc_id = await client.storage.dc_id()
+        sessions = await get_pool(client, dc_id, streams)
+        print(f'Turbo ready: {len(sessions)} streams on DC {dc_id} 🚀')
+        return True
+    except Exception as e:
+        STATE['ready'] = False
+        STATE['last_error'] = f'warmup: {type(e).__name__}: {e}'
+        print(f'Turbo UNAVAILABLE ({type(e).__name__}: {e}) - '
+              'transfers will fall back to plain pyrogram')
+        return False

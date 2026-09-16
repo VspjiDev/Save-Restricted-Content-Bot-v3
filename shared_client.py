@@ -82,6 +82,7 @@ async def start_client():
             sys.exit(1)
 
     if not TURBO_DISABLED:
-        print(f'Turbo transfers enabled: {TURBO_STREAMS} streams per file 🚀')
+        # Prove the pool works now rather than discovering it file by file.
+        await turbo.warmup(app, TURBO_STREAMS)
 
     return app, userbot

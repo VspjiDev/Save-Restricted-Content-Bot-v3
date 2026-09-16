@@ -128,6 +128,9 @@ at your app URL, which doubles as a health check.
 * **Bandwidth is the real speed limit.** The turbo engine will use whatever the
   dyno gives it, but a Heroku dyno is not a 1 Gbps box, so expect well under the
   numbers in the table above. A VPS gets closer to them.
+* **Check `/status` if transfers feel slow.** It reports whether the turbo pool
+  is actually up and, if it is not, the error that stopped it. The startup log
+  says the same thing in its first few lines (`Turbo ready: N streams on DC X`).
 * Changing `MASTER_KEY` or `IV_KEY` later makes every stored login unreadable,
   so users would have to `/login` again. Set them once and leave them alone.
 

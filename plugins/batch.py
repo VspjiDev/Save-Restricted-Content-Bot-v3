@@ -355,6 +355,15 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot):
     if message.sticker:
         return {'kind': 'sticker', 'message': message}
 
+    # A link preview, poll, contact or location counts as "media" but has no file
+    # behind it. Send the words rather than failing on a download that cannot
+    # happen.
+    if turbo.get_media(message) is None:
+        body = message.text or message.caption
+        if body:
+            return {'kind': 'text', 'message': message, 'text': body.markdown}
+        return {'kind': 'skip'}
+
     # Fastest possible path: the bot can read the post and it is not protected,
     # so Telegram copies it server side and nothing is transferred.
     if via_bot and not message.has_protected_content:
@@ -373,11 +382,13 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot):
         )
 
     if not path:
+        # Never let a media post fall through silently: if turbo declined, this
+        # is the transfer that actually has to deliver it.
         path = await with_flood(lambda: source.download_media(
             message, file_name=target, progress=on_progress
         ))
     if not path:
-        return {'kind': 'failed', 'reason': 'download failed'}
+        return {'kind': 'failed', 'reason': f'post {message.id}: download returned nothing'}
 
     if settings['rename_tag'] or settings['delete_words'] or settings['replacement_words']:
         path = rename_file_sync(
@@ -545,6 +556,7 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
     tracker = Tracker(bot, user_chat, status.id, count)
     updater = asyncio.create_task(tracker.run())
 
+    problems = []          # so a failed run can say what went wrong
     semaphore = asyncio.Semaphore(max(1, WORKERS))
     window = max(1, WORKERS) + 2
     tasks: Dict[int, asyncio.Task] = {}
@@ -560,7 +572,8 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
             try:
                 return await prepare_message(source, message, uid, settings, tracker, via_bot)
             except Exception as e:
-                return {'kind': 'failed', 'reason': str(e)[:80]}
+                return {'kind': 'failed',
+                        'reason': f'post {message.id}: {type(e).__name__}: {e}'}
 
     try:
         for index in range(count):
@@ -585,6 +598,7 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
             except Exception as e:
                 sent = False
                 tracker.note = f'post {ids[index]}: {str(e)[:60]}'
+                problems.append(f'post {ids[index]}: {type(e).__name__}: {e}')
                 cleanup(plan.get('path'), uid=uid)
 
             tracker.done += 1
@@ -592,6 +606,8 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
                 tracker.ok += 1
             elif plan['kind'] != 'skip':
                 tracker.fail += 1
+                if plan.get('reason'):
+                    problems.append(plan['reason'])
 
             if BATCH_DELAY:
                 await asyncio.sleep(BATCH_DELAY)
@@ -616,6 +632,14 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
             f'📊 Transferred: {moved}\n'
             f'⏱ Took: {elapsed}'
         )
+        if problems:
+            shown = '\n'.join(f'· `{p[:150]}`' for p in problems[:3])
+            summary += f'\n\n**Why some failed**\n{shown}'
+            if len(problems) > 3:
+                summary += f'\n· …and {len(problems) - 3} more'
+        if turbo.STATE.get('last_error') and not turbo.STATE.get('ready'):
+            summary += f"\n\n⚠️ Turbo inactive: `{turbo.STATE['last_error'][:150]}`"
+
         try:
             await bot.edit_message_text(user_chat, status.id, summary)
         except Exception:
