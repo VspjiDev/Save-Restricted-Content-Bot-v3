@@ -1,10 +1,13 @@
 {
-  "name": "Save Restricted Content Bot v3",
+  "name": "Vsp Official - Restricted Content Saver",
   "description": "Fast forwarder for restricted private and public Telegram channels",
-  "logo": "https://lh3.googleusercontent.com/-HPcn7AqepNg/AAAAAAAAAAI/AAAAAAAAAAA/ALKGfknb1BkQiq-8_KUVOYcNAJ4swKivDQ/photo.jpg",
-  "keywords": ["python3", "telegram", "telegram-bot", "pyrogram", "forwarder"],
-  "repository": "https://github.com/devgaganin/save_restricted-content-telegram-bot-repo",
-  "success_url": "https://devgagan.in",
+  "keywords": [
+    "python3",
+    "telegram",
+    "telegram-bot",
+    "pyrogram",
+    "forwarder"
+  ],
   "env": {
     "API_ID": {
       "description": "Get this value from https://my.telegram.org",
@@ -66,11 +69,6 @@
       "value": "4",
       "required": false
     },
-    "MAX_TRANSMISSIONS": {
-      "description": "Parallel chunk streams per file transfer. Biggest speed lever, 8-16 works well",
-      "value": "8",
-      "required": false
-    },
     "BATCH_DELAY": {
       "description": "Seconds to wait between two posts of a batch. 0 is fastest",
       "value": "0",
@@ -83,12 +81,22 @@
     },
     "BATCH_LIMIT": {
       "description": "Maximum posts allowed in one /batch run",
-      "value": "5000",
+      "value": "10000",
       "required": false
     },
     "JOIN_LINK": {
-      "description": "Updates channel link shown on /start",
-      "value": "https://t.me/team_spy_pro",
+      "description": "Optional updates channel link shown on /start",
+      "value": "",
+      "required": false
+    },
+    "BRAND": {
+      "description": "Name shown across the bot",
+      "value": "Vsp Official",
+      "required": false
+    },
+    "TURBO_STREAMS": {
+      "description": "Connections opened per file by the turbo engine. Main speed lever; 8-24, lower it if you hit FloodWait",
+      "value": "16",
       "required": false
     }
   },

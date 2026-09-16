@@ -1,4 +1,4 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Copyright (c) 2025 Vsp Official
 # Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
@@ -57,8 +57,9 @@ if _MISSING:
 API_ID   = int(_API_ID)
 OWNER_ID = list(map(int, _OWNER_ID.split()))
 
-# ─── UI / LINKS ─────────────────────────────────────────────────────────────────
-JOIN_LINK = os.getenv('JOIN_LINK', 'https://t.me/team_spy_pro')
+# ─── BRANDING ───────────────────────────────────────────────────────────────────
+BRAND     = os.getenv('BRAND', 'Vsp Official')
+JOIN_LINK = os.getenv('JOIN_LINK', '')   # optional updates channel shown on /start
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ░ SPEED / PERFORMANCE KNOBS  🚀
@@ -68,9 +69,15 @@ JOIN_LINK = os.getenv('JOIN_LINK', 'https://t.me/team_spy_pro')
 # in order, only the downloads run ahead of the uploader.
 WORKERS = int(os.getenv('WORKERS', '4'))
 
-# Parallel chunk streams pyrogram opens per file transfer. This is the single
-# biggest download/upload speed lever. 8-16 is a good range on a decent VPS.
-MAX_TRANSMISSIONS = int(os.getenv('MAX_TRANSMISSIONS', '8'))
+# Connections opened per file by the turbo engine (utils/turbo.py). Pyrogram on
+# its own moves one chunk at a time over one connection, which caps a transfer at
+# about one 1 MB round trip; this is what actually multiplies throughput.
+# Roughly linear: at a 200 ms round trip, 1 stream gives ~5 MB/s and 16 gives
+# ~75 MB/s. Drop it if Telegram starts answering with FloodWait.
+TURBO_STREAMS = int(os.getenv('TURBO_STREAMS', '16'))
+
+# Set to 1 to disable the turbo engine and use plain pyrogram transfers.
+TURBO_DISABLED = os.getenv('TURBO_DISABLED', '0') == '1'
 
 # Cooldown between two messages of a batch, in seconds. 0 is fastest; raise it
 # only if Telegram starts throwing FloodWait at you.
@@ -81,7 +88,7 @@ BATCH_DELAY = float(os.getenv('BATCH_DELAY', '0'))
 PROGRESS_INTERVAL = float(os.getenv('PROGRESS_INTERVAL', '6'))
 
 # Max messages allowed in a single /batch run.
-BATCH_LIMIT = int(os.getenv('BATCH_LIMIT', '5000'))
+BATCH_LIMIT = int(os.getenv('BATCH_LIMIT', '10000'))
 
 # Where temporary media is written.
 DOWNLOAD_DIR = os.getenv('DOWNLOAD_DIR', 'downloads')

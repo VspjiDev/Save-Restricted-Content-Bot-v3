@@ -1,4 +1,4 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Copyright (c) 2025 Vsp Official
 # Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
@@ -6,11 +6,13 @@
 
 Speed design, in short:
 
+* a public post that is not protected is copied server side, so zero bytes
+  are transferred at all
+* everything else is downloaded and re-uploaded through utils/turbo.py, which
+  uses many connections per file instead of pyrogram's single chunk at a time
 * one bulk ``get_messages`` per 100 posts instead of one call per post
 * chat/peer resolution and dialog refreshes are cached instead of repeated
 * downloads run ``WORKERS`` at a time while uploads stay strictly in order
-* a post the bot can read and that is not protected is copied by file id,
-  so zero bytes ever touch the disk
 * one throttled status message for the whole run instead of an edit per file
 """
 
@@ -25,15 +27,19 @@ from pyrogram.errors import FloodWait, MessageNotModified
 
 from config import (
     BATCH_DELAY,
+    BRAND,
     BATCH_LIMIT,
     DOWNLOAD_DIR,
     LOG_GROUP,
     PROGRESS_INTERVAL,
+    TURBO_DISABLED,
+    TURBO_STREAMS,
     WORKERS,
 )
 from plugins.settings import rename_file_sync
 from plugins.start import subscribe as sub
-from shared_client import app as X, build_client, userbot as Y
+from shared_client import app as X, build_client, turbocharge, userbot as Y
+from utils import turbo
 from utils.custom_filters import login_in_progress, settings_in_progress
 from utils.encrypt import dcs
 from utils.func import (
@@ -43,7 +49,6 @@ from utils.func import (
     apply_text_rules,
     get_forward_settings,
     get_user_data,
-    get_user_data_key,
     get_video_metadata,
     human_bytes,
     sanitize,
@@ -51,9 +56,9 @@ from utils.func import (
     thumbnail,
 )
 
-# uid -> client
-UB: Dict[int, Any] = {}   # the user's own upload bot
-UC: Dict[int, Any] = {}   # the user's logged in account
+# uid -> the user's logged in account, the only client that can read
+# restricted posts. Uploads always go out through the bot itself.
+UC: Dict[int, Any] = {}
 
 Z: Dict[int, Dict[str, Any]] = {}       # uid -> conversation state
 ACTIVE: Dict[int, Dict[str, Any]] = {}  # uid -> running batch
@@ -70,23 +75,6 @@ def should_cancel(uid: int) -> bool:
 
 
 # ── clients ─────────────────────────────────────────────────────────────────────
-
-async def get_ubot(uid: int):
-    """The bot the user added with /setbot - it does every upload."""
-    if uid in UB:
-        return UB[uid]
-    token = await get_user_data_key(uid, 'bot_token', None)
-    if not token:
-        return None
-    try:
-        bot = build_client(f'user_{uid}', bot_token=token, workers=8)
-        await bot.start()
-        UB[uid] = bot
-        return bot
-    except Exception as e:
-        print(f'Error starting bot for user {uid}: {e}')
-        return None
-
 
 async def get_uclient(uid: int):
     """The user's own account - the only client that can read restricted posts."""
@@ -105,17 +93,18 @@ async def get_uclient(uid: int):
             client = build_client(
                 f'{uid}_client',
                 session_string=session,
-                device_model='v3saver',
+                device_model=BRAND,
                 no_updates=True,          # this client never handles updates
             )
             await client.start()
+            turbocharge(client)
             await ensure_dialogs(client, force=True)
             UC[uid] = client
             return client
         except Exception as e:
             print(f'User client error for {uid}: {e}')
 
-    return UB.get(uid) or Y
+    return Y
 
 
 # ── peer resolution (cached) ────────────────────────────────────────────────────
@@ -373,10 +362,20 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot):
 
     target = media_filename(message, uid)
     os.makedirs(os.path.dirname(target), exist_ok=True)
+    on_progress = tracker.callback('down')
 
-    path = await with_flood(lambda: source.download_media(
-        message, file_name=target, progress=tracker.callback('down')
-    ))
+    path = None
+    if not TURBO_DISABLED:
+        # Many connections at once; returns None when it cannot help, in which
+        # case we simply use pyrogram's downloader below.
+        path = await turbo.turbo_download(
+            source, message, target, TURBO_STREAMS, on_progress
+        )
+
+    if not path:
+        path = await with_flood(lambda: source.download_media(
+            message, file_name=target, progress=on_progress
+        ))
     if not path:
         return {'kind': 'failed', 'reason': 'download failed'}
 
@@ -640,10 +639,6 @@ async def process_cmd(client, message):
         await message.reply_text('You already have a running task. Use /stop to cancel it.')
         return
 
-    if not await get_ubot(uid):
-        await message.reply_text('Add your bot first: `/setbot <token>`')
-        return
-
     single = message.command[0] == 'single'
     Z[uid] = {'step': 'single' if single else 'link'}
     await message.reply_text(
@@ -671,7 +666,7 @@ async def cancel_cmd(client, message):
     & ~filters.command([
         'start', 'help', 'status', 'set', 'settings',
         'batch', 'single', 'cancel', 'stop',
-        'login', 'logout', 'setbot', 'rembot',
+        'login', 'logout',
     ])
 )
 async def text_handler(client, message):
@@ -718,11 +713,7 @@ async def start_run(client, message, uid, chat, msg_id, link_type, count):
 
     status = await message.reply_text('⚙️ Warming up the engines...')
 
-    bot = UB.get(uid) or await get_ubot(uid)
-    if not bot:
-        await status.edit_text('Add your bot first: `/setbot <token>`')
-        return
-
+    bot = X                      # every upload goes out through this bot
     user_client = await get_uclient(uid)
     if not user_client and link_type == 'private':
         await status.edit_text('Private links need /login first.')

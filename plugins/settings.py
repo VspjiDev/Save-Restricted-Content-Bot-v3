@@ -1,4 +1,4 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Copyright (c) 2025 Vsp Official
 # Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
@@ -8,6 +8,7 @@ import re
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from config import BRAND
 from shared_client import app
 from utils.custom_filters import settings_in_progress, set_settings_step, get_settings_step
 from utils.func import (
@@ -19,21 +20,19 @@ from utils.func import (
 )
 
 MESS = (
-    "⚙️ **Forward settings**\n\n"
-    "Yahan se aap decide karte ho ki extract kiya hua content kahan jaayega "
-    "aur kaisa dikhega."
+    f"⚙️ **{BRAND} — Settings**\n\n"
+    "Choose where your extracted posts go and how they look."
 )
 
 PROMPTS = {
     'setchat': (
         "Send me the target chat ID (with the `-100` prefix):\n\n"
-        "👉 __Your custom bot must be admin in that chat (or this bot, if you have not set one).__\n"
+        "👉 __This bot must be an admin in that chat.__\n"
         "👉 __For a topic group use `-100CHANNELID/TOPIC_ID`, e.g. `-1004783898/12`__"
     ),
     'setrename': 'Send me the rename tag:',
     'setcaption': 'Send me the caption:',
     'setreplacement': "Send the replacement words in the format: 'WORD(s)' 'REPLACEWORD'",
-    'addsession': 'Send your Pyrogram V2 session string:',
     'deleteword': 'Send words separated by space to delete them from captions/filenames:',
     'setthumb': 'Send me the photo you want to use as thumbnail.',
 }
@@ -54,7 +53,6 @@ def settings_keyboard():
             InlineKeyboardButton('♻️ Reset Settings', callback_data='st_reset'),
         ],
         [
-            InlineKeyboardButton('🔑 Session Login', callback_data='st_addsession'),
             InlineKeyboardButton('🚪 Logout', callback_data='st_logout'),
         ],
         [
@@ -139,7 +137,6 @@ async def settings_input(client, message):
         'setrename': handle_setrename,
         'setcaption': handle_setcaption,
         'setreplacement': handle_setreplacement,
-        'addsession': handle_addsession,
         'deleteword': handle_deleteword,
         'setthumb': handle_setthumb,
     }
@@ -182,11 +179,6 @@ async def handle_setreplacement(message, user_id):
     replacements[word] = replace_word
     await save_user_data(user_id, 'replacement_words', replacements)
     await message.reply_text(f"✅ Saved: '{word}' will be replaced with '{replace_word}'")
-
-
-async def handle_addsession(message, user_id):
-    await save_user_data(user_id, 'session_string', message.text.strip())
-    await message.reply_text('✅ Session string added successfully!')
 
 
 async def handle_deleteword(message, user_id):

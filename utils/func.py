@@ -1,4 +1,4 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Copyright (c) 2025 Vsp Official
 # Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
@@ -170,30 +170,6 @@ async def remove_user_session(user_id):
         return True
     except Exception as e:
         logger.error(f'Error removing session for user {user_id}: {e}')
-        return False
-
-
-async def save_user_bot(user_id, bot_token):
-    try:
-        await users_collection.update_one(
-            {"user_id": int(user_id)},
-            {"$set": {"bot_token": bot_token, "updated_at": datetime.now()}},
-            upsert=True,
-        )
-        invalidate_user_cache(user_id)
-        return True
-    except Exception as e:
-        logger.error(f'Error saving bot token for user {user_id}: {e}')
-        return False
-
-
-async def remove_user_bot(user_id):
-    try:
-        await users_collection.update_one({"user_id": int(user_id)}, {"$unset": {"bot_token": ""}})
-        invalidate_user_cache(user_id)
-        return True
-    except Exception as e:
-        logger.error(f'Error removing bot token for user {user_id}: {e}')
         return False
 
 

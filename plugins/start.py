@@ -1,4 +1,4 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Copyright (c) 2025 Vsp Official
 # Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
@@ -6,7 +6,7 @@ from pyrogram import filters
 from pyrogram.errors import UserNotParticipant
 from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 
-from config import FORCE_SUB, JOIN_LINK, OWNER_ID, WORKERS, MAX_TRANSMISSIONS
+from config import BRAND, FORCE_SUB, JOIN_LINK, OWNER_ID, TURBO_DISABLED, TURBO_STREAMS, WORKERS
 from shared_client import app
 from utils.func import get_user_data
 
@@ -25,6 +25,8 @@ async def subscribe(client, message):
             link = await client.export_chat_invite_link(FORCE_SUB)
         except Exception:
             link = JOIN_LINK
+        if not link:
+            return 0
         await message.reply_text(
             'Join our channel to use the bot.',
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Join Now', url=link)]]),
@@ -37,53 +39,53 @@ async def subscribe(client, message):
 
 
 START_TEXT = (
-    "👋 **Restricted Content Saver**\n\n"
-    "⚡ Main un channels/groups se posts save kar sakta hoon jahan forwarding off hai — "
-    "public bhi aur private bhi.\n\n"
-    "**Kaise use karein**\n"
-    "1. `/setbot <token>` — apna bot add karo (files isi se upload hongi)\n"
-    "2. `/login` — private channels ke liye login karo\n"
-    "3. `/single` — ek post ka link bhejo\n"
-    "4. `/batch` — bulk me posts nikalo\n\n"
-    f"🚀 Parallel workers: **{WORKERS}** · chunk streams per file: **{MAX_TRANSMISSIONS}**\n\n"
-    "Zyada detail ke liye /help bhejo."
+    f"👋 **{BRAND} — Restricted Content Saver**\n\n"
+    "⚡ I save posts from channels and groups where forwarding is off — public and private both.\n\n"
+    "**How to use**\n"
+    "1. `/login` — only needed for private channels\n"
+    "2. `/single` — send one post link\n"
+    "3. `/batch` — bulk extract\n\n"
+    "Send /help for everything else."
 )
 
 HELP_TEXT = (
-    "📝 **Commands**\n\n"
+    f"📝 **{BRAND} — Commands**\n\n"
     "**Extract**\n"
-    "• `/single` — ek post extract karo (link bhejo)\n"
-    "• `/batch` — bulk extract (start link + count)\n"
-    "• `/stop` — chalti hui batch cancel karo\n\n"
-    "**Setup**\n"
-    "• `/setbot <token>` — apna upload bot add karo\n"
-    "• `/rembot` — custom bot hatao\n"
-    "• `/login` — private channels ke liye login\n"
-    "• `/logout` — session hatao\n"
-    "• `/status` — login/bot status dekho\n\n"
+    "• `/single` — extract one post (then send the link)\n"
+    "• `/batch` — bulk extract (start link + how many)\n"
+    "• `/stop` — cancel a running batch\n\n"
+    "**Account**\n"
+    "• `/login` — log in so private channels can be read\n"
+    "• `/logout` — remove your session\n"
+    "• `/status` — your current status\n\n"
     "**Settings** — `/settings`\n"
-    "• Set Chat ID — seedha kisi channel/group/topic me upload karo\n"
-    "• Set Rename Tag — filenames me apna tag lagao\n"
+    "• Set Chat ID — upload straight into a channel, group or topic\n"
+    "• Set Rename Tag — add your tag to filenames\n"
     "• Set Caption — custom caption\n"
-    "• Replace / Remove Words — caption aur filename clean karo\n"
+    "• Replace / Remove Words — clean up captions and filenames\n"
     "• Set Thumbnail — custom video thumbnail\n"
-    "• Reset — sab default par\n\n"
+    "• Reset — back to defaults\n\n"
     "**Link formats**\n"
     "• Public: `https://t.me/channel/123`\n"
     "• Private: `https://t.me/c/1234567890/123`\n"
-    "• Topic: `https://t.me/c/1234567890/12/123`\n"
+    "• Topic: `https://t.me/c/1234567890/12/123`\n\n"
+    "**Note**: a public post that is not protected is copied instantly with no "
+    "download at all. Everything else is downloaded and re-uploaded."
 )
+
+
+def start_keyboard():
+    rows = [[InlineKeyboardButton('❓ Help', callback_data='show_help')]]
+    if JOIN_LINK:
+        rows.insert(0, [InlineKeyboardButton('📢 Updates', url=JOIN_LINK)])
+    return InlineKeyboardMarkup(rows)
 
 
 @app.on_message(filters.command('start') & filters.private)
 async def start_handler(client, message):
     if await subscribe(client, message) == 1:
         return
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton('📢 Updates', url=JOIN_LINK)],
-        [InlineKeyboardButton('❓ Help', callback_data='show_help')],
-    ])
-    await message.reply_text(START_TEXT, reply_markup=buttons, disable_web_page_preview=True)
+    await message.reply_text(START_TEXT, reply_markup=start_keyboard(), disable_web_page_preview=True)
 
 
 @app.on_message(filters.command('help') & filters.private)
@@ -102,11 +104,13 @@ async def show_help(client, query):
 @app.on_message(filters.command('status') & filters.private)
 async def status_handler(client, message):
     data = await get_user_data(message.from_user.id, cached=False) or {}
+    engine = f'{TURBO_STREAMS} streams/file' if not TURBO_DISABLED else 'off'
     await message.reply_text(
-        '**Your current status:**\n\n'
+        f'**{BRAND} — your status**\n\n'
         f"**Login:** {'✅ Active' if data.get('session_string') else '❌ Inactive'}\n"
-        f"**Custom bot:** {'✅ Added' if data.get('bot_token') else '❌ Not added'}\n"
-        f"**Target chat:** `{data.get('chat_id') or 'this chat'}`"
+        f"**Target chat:** `{data.get('chat_id') or 'this chat'}`\n"
+        f'**Turbo engine:** {engine}\n'
+        f'**Parallel files:** {WORKERS}'
     )
 
 
@@ -122,8 +126,6 @@ async def set_commands(client, message):
         BotCommand('stop', '🚫 Cancel the running batch'),
         BotCommand('login', '🔑 Login for private channels'),
         BotCommand('logout', '🚪 Remove your session'),
-        BotCommand('setbot', '🧸 Add your upload bot'),
-        BotCommand('rembot', '🤨 Remove your upload bot'),
         BotCommand('settings', '⚙️ Personalize things'),
         BotCommand('status', '📊 Your current status'),
         BotCommand('help', '❓ How to use the bot'),

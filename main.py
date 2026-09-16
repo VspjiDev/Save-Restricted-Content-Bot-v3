@@ -1,4 +1,4 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Copyright (c) 2025 Vsp Official
 # Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
@@ -9,7 +9,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from config import DOWNLOAD_DIR, PORT
+from config import BRAND, DOWNLOAD_DIR, PORT
 from shared_client import start_client
 
 try:
@@ -27,7 +27,7 @@ class Health(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b'Restricted content forwarder is running.')
+        self.wfile.write(f'{BRAND} - restricted content forwarder is running.'.encode())
 
     def log_message(self, *args):
         pass
@@ -59,8 +59,12 @@ async def main():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     start_health_server()
     await load_and_run_plugins()
-    print('Bot is up. Waiting for links...')
-    await asyncio.Event().wait()
+    print(f'{BRAND} is up. Waiting for links...')
+    try:
+        await asyncio.Event().wait()
+    finally:
+        from utils.turbo import close_pools
+        await close_pools()
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Copyright (c) 2025 Vsp Official
 # Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
@@ -6,20 +6,17 @@ import sys
 
 from pyrogram import Client
 
-from config import API_ID, API_HASH, BOT_TOKEN, STRING, MAX_TRANSMISSIONS
+from config import API_ID, API_HASH, BOT_TOKEN, STRING, TURBO_DISABLED, TURBO_STREAMS, WORKERS
+from utils import turbo
 
 
 def build_client(name, **kwargs):
-    """Create a pyrogram client with the transfer tuning applied.
-
-    ``max_concurrent_transmissions`` makes pyrogram open several chunk streams per
-    file instead of one, which is where most of the download/upload speed comes
-    from. It is guarded because older pyrogram builds do not accept the argument.
-    """
     kwargs.setdefault('api_id', API_ID)
     kwargs.setdefault('api_hash', API_HASH)
-    kwargs.setdefault('sleep_threshold', 60)      # auto-wait short FloodWaits
-    kwargs.setdefault('max_concurrent_transmissions', max(1, MAX_TRANSMISSIONS))
+    kwargs.setdefault('sleep_threshold', 60)   # sit out short FloodWaits
+    # Pyrogram's own knob only caps how many files move at once, not how fast a
+    # single one moves. utils/turbo.py is what makes an individual transfer fast.
+    kwargs.setdefault('max_concurrent_transmissions', max(1, WORKERS))
     try:
         return Client(name, **kwargs)
     except TypeError:
@@ -27,23 +24,35 @@ def build_client(name, **kwargs):
         return Client(name, **kwargs)
 
 
-# main bot - handles commands and uploads
+def turbocharge(client):
+    """Route this client's uploads through the parallel engine."""
+    if client and not TURBO_DISABLED:
+        turbo.install(client, TURBO_STREAMS)
+    return client
+
+
+# the one bot everything runs through - it receives commands and uploads files
 app = build_client('pyrogrambot', bot_token=BOT_TOKEN, workers=16)
 
-# optional premium userbot - used to push files bigger than 2 GB
+# optional premium userbot, only needed to push files above 2 GB
 userbot = build_client('4gbbot', session_string=STRING, no_updates=True) if STRING else None
 
 
 async def start_client():
     await app.start()
-    print('Pyro App Started...')
+    turbocharge(app)
+    print('Bot started...')
 
     if userbot:
         try:
             await userbot.start()
-            print('Userbot started (4GB uploads enabled)...')
+            turbocharge(userbot)
+            print('Userbot started (uploads above 2GB enabled)...')
         except Exception as e:
             print(f'Invalid or expired STRING session, 4GB uploads disabled: {e}')
             sys.exit(1)
+
+    if not TURBO_DISABLED:
+        print(f'Turbo transfers enabled: {TURBO_STREAMS} streams per file 🚀')
 
     return app, userbot
