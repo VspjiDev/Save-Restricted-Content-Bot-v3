@@ -3,7 +3,6 @@
 # See LICENSE file in the repository root for full license text.
 
 from pyrogram import Client, filters
-from pyrogram.types import Message
 from pyrogram.errors import BadRequest, SessionPasswordNeeded, PhoneCodeInvalid, PhoneCodeExpired, MessageNotModified
 import logging
 import os
@@ -61,6 +60,7 @@ async def set_bot_token(C, m):
         return
 
     bot_token = args[1].strip()
+    UB.pop(user_id, None)
     await save_user_bot(user_id, bot_token)
     await m.reply_text("✅ Bot token saved successfully.", quote=True)
     
@@ -94,8 +94,8 @@ async def rem_bot_token(C, m):
 
     
 @bot.on_message(login_in_progress & filters.text & filters.private & ~filters.command([
-    'start', 'batch', 'cancel', 'login', 'logout', 'stop', 'set', 'pay',
-    'redeem', 'gencode', 'generate', 'keyinfo', 'encrypt', 'decrypt', 'keys', 'setbot', 'rembot']))
+    'start', 'help', 'status', 'set', 'settings', 'batch', 'single',
+    'cancel', 'stop', 'login', 'logout', 'setbot', 'rembot']))
 async def handle_login_steps(client, message):
     user_id = message.from_user.id
     text = message.text.strip()
@@ -207,7 +207,7 @@ async def edit_message_safely(message, text):
     except Exception as e:
         logger.error(f'Error editing message: {e}')
         
-@bot.on_message(filters.command('cancel'))
+@bot.on_message(filters.command('cancel') & login_in_progress)
 async def cancel_command(client, message):
     user_id = message.from_user.id
     await message.delete()

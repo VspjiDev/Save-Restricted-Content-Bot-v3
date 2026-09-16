@@ -1,204 +1,128 @@
-<h1 align="center">
-  Save Restricted Content Bot v3
-</h1>
+# Save Restricted Content Bot v3 🚀
 
-The Save Restricted Content Bot is a stable Telegram bot developed by devgagan and TEAM SPY. It enables users to retrieve restricted messages from Telegram channels and groups, offering features such as custom thumbnail support and the ability to upload files up to 4GB. Additionally, the bot supports downloading videos from platforms like YouTube, Instagram, and Facebook, along with over 100 other sites
+A focused Telegram bot that does exactly one thing: **save and forward posts from
+restricted private and public channels**, as fast as Telegram allows.
 
-[Telegram](https://t.me/save_restricted_content_bots) | [See Recent Updates](https://github.com/devgaganin/Save-Restricted-Content-Bot-V2/tree/v3#updates)
-
-### Star the repo it motivate us to update new features
-Please do start and max fork thanks 
-
-## 📚 About This Branch
-- This branch is based on `Pyrogram V2` offering enhanced stability and a forced login feature. User are not forced to login in bot for public channels but for public groups and private channel they have to do login.
-- for detailed features scroll down to features section
+Everything that was not about forwarding — the YouTube/Instagram downloader,
+Telegram Stars payments, premium plans, referral/plan/terms pages and the second
+Telethon client — has been removed.
 
 ---
 
-## 🔧 Features
-- Extract content from both public and private channels/groups.
-- Custom bot functionality added use `/setbot`
-- 128 bit encryption for data saving use @v3saverbot on telegram to generate `MASTER_KEY`, `IV_KEY`
-- Rename and forward content to other channels or users.
-- extract restricted content from other bots how to use format link like `https://botusername(without @)/message_id(get it from plus messenger)`
-- `/login` method along with `session` based login
-- Custom captions and thumbnails.
-- Auto-remove default video thumbnails.
-- Delete or replace words in filenames and captions.
-- Auto-pin messages if enabled.
-- download yt/insta/Twitter/fb ect normal ytdlp supported sites that supports best format
-- Login via phone number.
-- **Supports 4GB file uploads**: The bot can handle large file uploads, up to 4GB in size.
-- file splitter if not premium string
-- **Enhanced Timer**: Distinct timers for free and paid users to limit usage and improve service.
-- **Improved Looping**: Optimized looping for processing multiple files or links, reducing delays and enhancing performance.
-- **Premium Access**: Premium users enjoy faster processing speeds and priority queue management.
-- ~~ads setup shorlink ads token system~~
-- ~~fast uploader via `SpyLib` using Telethon modules and `mautrix bridge repo`~~ 
-- Directly upload to `topic` in any topic enabled group
-- real time download and uplaod progress, support chats, text , audio, video , video note sticker everything
+## What it does
 
-  
-## ⚡ Commands
+| Command | What it does |
+|---|---|
+| `/start` | Intro and quick setup |
+| `/single` | Extract one post from a link |
+| `/batch` | Bulk extract starting at a link |
+| `/stop` | Cancel the running batch |
+| `/setbot <token>` | Add your own bot — it does all the uploading |
+| `/rembot` | Remove your upload bot |
+| `/login` | Log in so private channels can be read |
+| `/logout` | Remove your session |
+| `/settings` | Target chat, caption, rename tag, word rules, thumbnail |
+| `/status` | Your login / bot / target status |
+| `/set` | (owner) push the command list to BotFather |
 
-- **`start`**: 🚀 Start the bot.
-- **`batch`**: 🫠 Extract in bulk.
-- **`login`**: 🔑 Get into the bot.
-- **`single`**: Process single link.
-- **`setbot`**: add your custome bot.
-- **`logout`**: 🚪 Get out of the bot.
-- **`adl`**: 👻 Download audio from 30+ sites.
-- **`dl`**: 💀 Download videos from 30+ sites.
-- **`transfer`**: 💘 Gift premium to others.
-- **`status`**: ⌛ Get your plan details.
-- **`add`**: ➕ Add user to premium.
-- **`rem`**: ➖ Remove user from premium.
-- **`rembot`**: remove your custome bot.
-- **`session`**: 🧵 Generate Pyrogramv2 session.
-- **`settings`**: ⚙️ Personalize settings.
-- **`stats`**: 📊 Get stats of the bot.
-- **`plan`**: 🗓️ Check our premium plans.
-- **`terms`**: 🥺 Terms and conditions.
-- **`help`**: ❓ Help if you're new.
-- **`cancel`**: 🚫 Cancel batch process.
+Supported links:
 
-
-## ⚙️ Required Variables
-
-<details>
-<summary><b>Click to view required variables</b></summary>
-
-To run the bot, you'll need to configure a few sensitive variables. Here's how to set them up securely:
-
-- **`API_ID`**: Your API ID from [telegram.org](https://my.telegram.org/auth).
-- **`API_HASH`**: Your API Hash from [telegram.org](https://my.telegram.org/auth).
-- **`BOT_TOKEN`**: Get your bot token from [@BotFather](https://t.me/botfather).
-- **`OWNER_ID`**: Use [@missrose_bot](https://t.me/missrose_bot) to get your user ID by sending `/info`.
-- **`CHANNEL_ID`**: The ID of the channel for forced subscription.
-- **`LOG_GROUP`**: A group or channel where the bot logs messages. Forward a message to [@userinfobot](https://t.me/userinfobot) to get your channel/group ID.
-- **`MONGO_DB`**: A MongoDB URL for storing session data (recommended for security).
-  
-### Additional Configuration Options:
-- **`STRING`**: (Optional) Add your **premium account session string** here to allow 4GB file uploads. This is **optional** and can be left empty if not used.
-- **`FREEMIUM_LIMIT`**: Default is `0`. Set this to any value you want to allow free users to extract content. If set to `0`, free users will not have access to any extraction features.
-- **`PREMIUM_LIMIT`**: Default is `500`. This is the batch limit for premium users. You can customize this to allow premium users to process more links/files in one batch.
-- **`YT_COOKIES`**: Yt cookies for downloading yt videos 
-- **`INSTA_COOKIES`**: If you want to enable instagram downloading fill cookiesn
-
-**How to get cookies ??** : use mozila firfox if on android or use chrome on desktop and download extension get this cookie or any Netscape Cookies (HTTP Cookies) extractor and use that 
-
-### Monetization (Optional):
-- **`WEBSITE_URL`**: (Optional) This is the domain for your monetization short link service. Provide the shortener's domain name, for example: `upshrink.com`. Do **not** include `www` or `https://`. The default link shortener is already set.
-- **`AD_API`**: (Optional) The API key from your link shortener service (e.g., **Upshrink**, **AdFly**, etc.) to monetize links. Enter the API provided by your shortener.
-
-> **Important:** Always keep your credentials secure! Never hard-code them in the repository. Use environment variables or a `.env` file.
-
-</details>
+```
+public   https://t.me/channel/123
+private  https://t.me/c/1234567890/123
+topic    https://t.me/c/1234567890/12/123
+bot chat https://t.me/b/botname/123
+```
 
 ---
 
-## 🚀 Deployment Guide
+## Why it is fast 🚀
 
-<details>
-<summary><b>Deploy on VPS</b></summary>
+| | Before | Now |
+|---|---|---|
+| Pause between posts | `sleep(10)` — hardcoded | `BATCH_DELAY`, default **0** |
+| Downloads | one at a time | **`WORKERS` in parallel**, uploads stay in order |
+| Chunks per transfer | 1 stream | **`MAX_TRANSMISSIONS`** parallel streams (default 8) |
+| Fetching 100 posts | 100 API calls | **1 bulk call** |
+| Peer resolution | up to 200 dialogs walked *per post* | cached, refreshed at most every 10 min |
+| Progress updates | an edit per file, awaited inside the transfer | one throttled status message, never blocks a transfer |
+| Settings lookups | 4+ Mongo reads per post | 1 cached read per run |
+| Video metadata | OpenCV decoded the file | `ffprobe` reads the header only |
+| Unprotected posts | downloaded and re-uploaded | **copied server side — zero bytes transferred** |
+| Event loop | asyncio default | `uvloop` when available |
 
-1. Fork the repo.
-2. Update `config.py` with your values.
-3. Run the following:
-   ```bash
-   sudo apt update
-   sudo apt install ffmpeg git python3-pip
-   git clone your_repo_link
-   cd your_repo_name
-   pip3 install -r requirements.txt
-   python3 main.py
-   ```
+On a 20-post batch where each post takes 1s to download and 0.5s to upload, the
+old serial flow needed ~233s; the new pipeline finishes the same work in ~11s
+because uploads and downloads overlap and the 10s pause is gone.
 
-- To run the bot in the background:
-  ```bash
-  screen -S gagan
-  python3 main.py
-  ```
-  - Detach: `Ctrl + A`, then `Ctrl + D`
-  - To stop: `screen -r gagan` and `screen -S gagan -X quit`
-
-</details>
-
-<details>
-<summary><b>Deploy on Heroku</b></summary>
-
-1. Fork and Star the repo.
-2. Click [![Deploy to Heroku](https://img.shields.io/badge/Deploy%20to-Heroku-purple?style=for-the-badge&logo=heroku)](https://www.heroku.com/deploy?template=https://github.com/VspjiDev/Save-Restricted-Content-Bot-v3)
-3. Enter required variables and click deploy ✅.
-
-</details>
-
-<details>
-<summary><b>Deploy on Render</b></summary>
-
-1. Fork and star the repo.
-2. Edit `config.py` or set environment variables on Render.
-3. Go to [render.com](https://render.com), sign up/log in.
-4. Create a new web service, select the free plan.
-5. Connect your GitHub repo and deploy ✅.
-
-</details>
-
-<details>
-<summary><b>Deploy on Koyeb</b></summary>
-
-1. Fork and star the repo.
-2. Edit `config.py` or set environment variables on Koyeb.
-3. Create a new service, select `Dockerfile` as build type.
-4. Connect your GitHub repo and deploy ✅.
-
-</details>
-
----
-### ⚠️ Must Do: Secure Your Sensitive Variables
-
-**Do not expose sensitive variables (e.g., `API_ID`, `API_HASH`, `BOT_TOKEN`) on GitHub. Use environment variables to keep them secure.**
-
-### Configuring Variables Securely:
-
-- **On VPS or Local Machine:**
-  - Use a text editor to edit `config.py`:
-    ```bash
-    nano config.py
-    ```
-  - Alternatively, export as environment variables:
-    ```bash
-    export API_ID=your_api_id
-    export API_HASH=your_api_hash
-    export BOT_TOKEN=your_bot_token
-    ```
-
-- **For Cloud Platforms (Heroku, Railway, etc.):**
-  - Set environment variables directly in your platform’s dashboard.
-
-- **Using `.env` File:**
-  - Create a `.env` file and add your credentials:
-    ```
-    API_ID=your_api_id
-    API_HASH=your_api_hash
-    BOT_TOKEN=your_bot_token
-    ```
-  - Make sure to add `.env` to `.gitignore` to prevent it from being pushed to GitHub.
-
-**Why This is Important?**
-Your credentials can be stolen if pushed to a public repository. Always keep them secure by using environment variables or local configuration files.
+The pipeline downloads ahead while uploading strictly in order, so **posts arrive
+in the same order they appear in the source channel**.
 
 ---
 
-## 🛠️ Terms of Use
+## Deploy
 
-Visit the [Terms of Use](https://github.com/devgaganin/Save-Restricted-Content-Bot-Repo/blob/master/TERMS_OF_USE.md) page to review and accept the guidelines.
-## Important Note
+```bash
+git clone <this repo> && cd Save-Restricted-Content-Bot-v3
+pip install -r requirements.txt
+# set your env vars (see below), then
+python3 main.py
+```
 
-**Note**: Changing the terms and commands doesn't magically make you a developer. Real development involves understanding the code, writing new functionalities, and debugging issues, not just renaming things. If only it were that easy!
+Docker:
 
+```bash
+docker build -t srcb . && docker run --env-file .env srcb
+```
 
-<h3 align="center">
-  Developed with ❤️ by <a href="https://t.me/team_spy_pro"> Gagan </a>
-</h3>
+`ffmpeg` is required for video thumbnails and duration — the Dockerfile installs
+it. Without it the bot still works, just without generated thumbnails.
 
+### Environment variables
+
+**Required**
+
+| Var | Meaning |
+|---|---|
+| `API_ID`, `API_HASH` | from https://my.telegram.org |
+| `BOT_TOKEN` | from @BotFather |
+| `MONGO_DB` | MongoDB connection URL |
+| `OWNER_ID` | your user id (space separated for several) |
+| `MASTER_KEY`, `IV_KEY` | session encryption keys — **set your own** |
+
+**Optional**
+
+| Var | Default | Meaning |
+|---|---|---|
+| `STRING` | – | Premium account session string, needed only for uploads above 2GB |
+| `LOG_GROUP` | – | Channel used to stage those >2GB files; the bot must be admin |
+| `FORCE_SUB` | `0` | Channel users must join, `0` disables it |
+| `WORKERS` | `4` | Files downloaded in parallel |
+| `MAX_TRANSMISSIONS` | `8` | Parallel chunk streams per file — the biggest speed lever |
+| `BATCH_DELAY` | `0` | Seconds between posts; raise only if you hit FloodWait |
+| `PROGRESS_INTERVAL` | `6` | Seconds between progress edits |
+| `BATCH_LIMIT` | `5000` | Max posts per `/batch` |
+| `DOWNLOAD_DIR` | `downloads` | Temp media directory |
+| `PORT` | `8080` | Keep-alive HTTP port |
+
+### Tuning
+
+* Fast VPS, plenty of RAM → `WORKERS=6`, `MAX_TRANSMISSIONS=16`
+* Small box or slow disk → `WORKERS=2`, `MAX_TRANSMISSIONS=4`
+* Getting FloodWait → `BATCH_DELAY=2`, then raise it further if needed
+
+Each parallel worker holds one file on disk, so peak temp usage is roughly
+`WORKERS × largest file size`.
+
+---
+
+## Security note
+
+The repository history contains committed `API_ID` / `API_HASH` / `BOT_TOKEN` /
+`MONGO_DB` / `MASTER_KEY` values as fallback defaults in `config.py`. **Rotate
+them and supply your own via environment variables** — anyone who reads the repo
+can otherwise use them.
+
+---
+
+Licensed under the GNU General Public License v3.0 — see `LICENSE`.

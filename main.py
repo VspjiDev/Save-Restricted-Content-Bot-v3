@@ -1,41 +1,74 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.  
-# Licensed under the GNU General Public License v3.0.  
+# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
 import asyncio
-from shared_client import start_client
 import importlib
 import os
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from config import DOWNLOAD_DIR, PORT
+from shared_client import start_client
+
+try:
+    import uvloop  # a drop-in event loop that is noticeably faster than asyncio's
+    uvloop.install()
+    print('uvloop enabled 🚀')
+except Exception:
+    pass
+
+
+class Health(BaseHTTPRequestHandler):
+    """Keep-alive endpoint for Koyeb / Render / Heroku web dynos."""
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Restricted content forwarder is running.')
+
+    def log_message(self, *args):
+        pass
+
+
+def start_health_server():
+    try:
+        server = ThreadingHTTPServer(('0.0.0.0', PORT), Health)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print(f'Health server listening on :{PORT}')
+    except Exception as e:
+        print(f'Health server not started: {e}')
+
 
 async def load_and_run_plugins():
     await start_client()
-    plugin_dir = "plugins"
-    plugins = [f[:-3] for f in os.listdir(plugin_dir) if f.endswith(".py") and f != "__init__.py"]
+    for entry in sorted(os.listdir('plugins')):
+        if not entry.endswith('.py') or entry == '__init__.py':
+            continue
+        name = entry[:-3]
+        module = importlib.import_module(f'plugins.{name}')
+        runner = getattr(module, f'run_{name}_plugin', None)
+        if runner:
+            print(f'Running {name} plugin...')
+            await runner()
 
-    for plugin in plugins:
-        module = importlib.import_module(f"plugins.{plugin}")
-        if hasattr(module, f"run_{plugin}_plugin"):
-            print(f"Running {plugin} plugin...")
-            await getattr(module, f"run_{plugin}_plugin")()  
 
 async def main():
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    start_health_server()
     await load_and_run_plugins()
-    while True:
-        await asyncio.sleep(1)  
+    print('Bot is up. Waiting for links...')
+    await asyncio.Event().wait()
 
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    print("Starting clients ...")
+
+if __name__ == '__main__':
+    print('Starting clients ...')
     try:
-        loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("Shutting down...")
+        print('Shutting down...')
     except Exception as e:
         print(e)
         sys.exit(1)
-    finally:
-        try:
-            loop.close()
-        except Exception:
-            pass

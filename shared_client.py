@@ -1,28 +1,49 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.  
-# Licensed under the GNU General Public License v3.0.  
+# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
+# Licensed under the GNU General Public License v3.0.
 # See LICENSE file in the repository root for full license text.
 
-from telethon import TelegramClient
-from config import API_ID, API_HASH, BOT_TOKEN, STRING
-from pyrogram import Client
 import sys
 
-client = TelegramClient("telethonbot", API_ID, API_HASH)
-app = Client("pyrogrambot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-userbot = Client("4gbbot", api_id=API_ID, api_hash=API_HASH, session_string=STRING)
+from pyrogram import Client
+
+from config import API_ID, API_HASH, BOT_TOKEN, STRING, MAX_TRANSMISSIONS
+
+
+def build_client(name, **kwargs):
+    """Create a pyrogram client with the transfer tuning applied.
+
+    ``max_concurrent_transmissions`` makes pyrogram open several chunk streams per
+    file instead of one, which is where most of the download/upload speed comes
+    from. It is guarded because older pyrogram builds do not accept the argument.
+    """
+    kwargs.setdefault('api_id', API_ID)
+    kwargs.setdefault('api_hash', API_HASH)
+    kwargs.setdefault('sleep_threshold', 60)      # auto-wait short FloodWaits
+    kwargs.setdefault('max_concurrent_transmissions', max(1, MAX_TRANSMISSIONS))
+    try:
+        return Client(name, **kwargs)
+    except TypeError:
+        kwargs.pop('max_concurrent_transmissions', None)
+        return Client(name, **kwargs)
+
+
+# main bot - handles commands and uploads
+app = build_client('pyrogrambot', bot_token=BOT_TOKEN, workers=16)
+
+# optional premium userbot - used to push files bigger than 2 GB
+userbot = build_client('4gbbot', session_string=STRING, no_updates=True) if STRING else None
+
 
 async def start_client():
-    if not client.is_connected():
-        await client.start(bot_token=BOT_TOKEN)
-        print("SpyLib started...")
-    if STRING:
+    await app.start()
+    print('Pyro App Started...')
+
+    if userbot:
         try:
             await userbot.start()
-            print("Userbot started...")
+            print('Userbot started (4GB uploads enabled)...')
         except Exception as e:
-            print(f"Hey honey!! check your premium string session, it may be invalid of expire {e}")
+            print(f'Invalid or expired STRING session, 4GB uploads disabled: {e}')
             sys.exit(1)
-    await app.start()
-    print("Pyro App Started...")
-    return client, app, userbot
 
+    return app, userbot

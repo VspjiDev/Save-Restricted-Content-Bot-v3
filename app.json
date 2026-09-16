@@ -1,8 +1,8 @@
 {
   "name": "Save Restricted Content Bot v3",
-  "description": "Save Restricted Content Bot by Team SPY",
+  "description": "Fast forwarder for restricted private and public Telegram channels",
   "logo": "https://lh3.googleusercontent.com/-HPcn7AqepNg/AAAAAAAAAAI/AAAAAAAAAAA/ALKGfknb1BkQiq-8_KUVOYcNAJ4swKivDQ/photo.jpg",
-  "keywords": ["python3", "telegram", "MusicBot", "telegram-bot", "pyrogram"],
+  "keywords": ["python3", "telegram", "telegram-bot", "pyrogram", "forwarder"],
   "repository": "https://github.com/devgaganin/save_restricted-content-telegram-bot-repo",
   "success_url": "https://devgagan.in",
   "env": {
@@ -32,69 +32,65 @@
       "required": true
     },
     "DB_NAME": {
-      "description": "Database name for MongoDB (default: telegram_downloader)",
+      "description": "Database name for MongoDB",
       "value": "telegram_downloader",
       "required": false
     },
     "STRING": {
-      "description": "Optional session string for logged-in user sessions",
+      "description": "Pyrogram session string of a Telegram Premium account. Required only for uploads above 2GB",
+      "value": "",
+      "required": false
+    },
+    "LOG_GROUP": {
+      "description": "Channel/group ID (with -100 prefix) used to stage files above 2GB. The bot must be admin there",
       "value": "",
       "required": false
     },
     "FORCE_SUB": {
-      "description": "Channel ID (with -100 prefix) for forced subscription",
-      "value": "-10012345567",
-      "required": true
-    },
-    "LOG_GROUP": {
-      "description": "Log channel/group ID (with -100 prefix) where the bot will send logs",
-      "value": "-1001234456",
-      "required": true
-    },
-    "MASTER_KEY": {
-      "description": "Master key used for session encryption",
-      "value": "gK8HzLfT9QpViJcYeB5wRa3DmN7P2xUq",
-      "required": false
-    },
-    "IV_KEY": {
-      "description": "Initialization vector key for decryption",
-      "value": "s7Yx5CpVmE3F",
-      "required": false
-    },
-    "YT_COOKIES": {
-      "description": "Cookies for YouTube downloads (in Netscape format)",
-      "value": "",
-      "required": false
-    },
-    "INSTA_COOKIES": {
-      "description": "Cookies for Instagram downloads (in Netscape format)",
-      "value": "",
-      "required": false
-    },
-    "FREEMIUM_LIMIT": {
-      "description": "Limit for freemium users (in MB or desired unit)",
+      "description": "Channel ID (with -100 prefix) users must join. Leave 0 to disable",
       "value": "0",
       "required": false
     },
-    "PREMIUM_LIMIT": {
-      "description": "Limit for premium users (in MB or desired unit)",
-      "value": "500",
+    "MASTER_KEY": {
+      "description": "Master key used for session encryption. Change this to your own value",
+      "value": "",
+      "required": true
+    },
+    "IV_KEY": {
+      "description": "Initialization vector key for session encryption. Change this to your own value",
+      "value": "",
+      "required": true
+    },
+    "WORKERS": {
+      "description": "How many files are downloaded in parallel per batch",
+      "value": "4",
       "required": false
     },
-    "ADMIN_CONTACT": {
-      "description": "type admin contact link",
-      "value": "https://t.me/kingofpatal",
-      "required": true
+    "MAX_TRANSMISSIONS": {
+      "description": "Parallel chunk streams per file transfer. Biggest speed lever, 8-16 works well",
+      "value": "8",
+      "required": false
+    },
+    "BATCH_DELAY": {
+      "description": "Seconds to wait between two posts of a batch. 0 is fastest",
+      "value": "0",
+      "required": false
+    },
+    "PROGRESS_INTERVAL": {
+      "description": "Seconds between progress message edits",
+      "value": "6",
+      "required": false
+    },
+    "BATCH_LIMIT": {
+      "description": "Maximum posts allowed in one /batch run",
+      "value": "5000",
+      "required": false
     },
     "JOIN_LINK": {
-      "description": "type join channel link which comes on /start",
+      "description": "Updates channel link shown on /start",
       "value": "https://t.me/team_spy_pro",
-      "required": true
+      "required": false
     }
   },
-  "buildpacks": [
-    { "url": "heroku/python" },
-    { "url": "https://github.com/heroku/heroku-buildpack-activestorage-preview" }
-  ],
   "stack": "container"
 }
