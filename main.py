@@ -7,10 +7,8 @@ import importlib
 import os
 import sys
 import threading
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-from config import BRAND, DOWNLOAD_DIR, PORT
-from shared_client import start_client
 
 try:
     import uvloop  # a drop-in event loop that is noticeably faster than asyncio's
@@ -18,6 +16,11 @@ try:
     print('uvloop enabled 🚀')
 except Exception:
     pass
+
+# Imported only after the loop policy is set: pyrogram clients latch onto
+# whatever loop exists when they are constructed.
+from config import BRAND, DOWNLOAD_DIR, PORT      # noqa: E402
+from shared_client import app, start_client        # noqa: E402
 
 
 class Health(BaseHTTPRequestHandler):
@@ -66,6 +69,18 @@ async def load_and_run_plugins():
             print(f'Running {name} plugin...')
             await runner()
 
+    # add_handler registers asynchronously, so let those tasks land before we
+    # report. A count of zero means the bot is connected but deaf, which is
+    # otherwise invisible - it just silently ignores everything.
+    await asyncio.sleep(0.5)
+    registered = sum(len(handlers) for handlers in app.dispatcher.groups.values())
+    print(f'Handlers registered: {registered}')
+    if registered < 5:
+        print(
+            'WARNING: almost no handlers registered, the bot will not answer. '
+            'This means the client is bound to the wrong event loop.'
+        )
+
 
 async def main():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -85,6 +100,11 @@ if __name__ == '__main__':
         asyncio.run(main())
     except KeyboardInterrupt:
         print('Shutting down...')
-    except Exception as e:
-        print(e)
+    except Exception:
+        # print(e) alone is close to useless here: a failed Telegram handshake
+        # raises KeyError(0), which prints as a bare "0" and tells nobody
+        # anything. The traceback is what makes a bad token or a blocked
+        # connection diagnosable from `heroku logs`.
+        print('Startup failed:', file=sys.stderr)
+        traceback.print_exc()
         sys.exit(1)

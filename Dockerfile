@@ -1,5 +1,10 @@
 FROM python:3.11-slim
 
+# Without this Python block-buffers stdout when it is a pipe, so nothing the app
+# prints ever reaches `heroku logs` and a broken start looks like total silence.
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 COPY requirements.txt .
 
