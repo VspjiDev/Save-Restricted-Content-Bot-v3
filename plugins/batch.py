@@ -372,7 +372,8 @@ def media_filename(message, uid):
     return os.path.join(os.path.abspath(DOWNLOAD_DIR), str(uid), str(message.id), sanitize(name))
 
 
-async def prepare_message(source, message, uid, settings, tracker, via_bot):
+async def prepare_message(source, message, uid, settings, tracker, via_bot,
+                          user_copy_ok=False, bot=None):
     """Download stage. Returns a plan the ordered upload stage can execute."""
     caption, overflow = build_caption(message, settings)
 
@@ -402,17 +403,37 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot):
     if via_bot and not message.has_protected_content:
         return {'kind': 'copy', 'message': message, 'caption': caption, 'overflow': overflow}
 
+    # Same trick through the user's own account. A private channel is not
+    # necessarily a protected one - most are simply private - and the logged in
+    # account can copy those straight across. Telegram moves them server side,
+    # so no download or upload happens at all and per-account throttling is
+    # irrelevant. Only used when posting into a configured channel, where a post
+    # from the user's account reads as a channel post; in a DM it would arrive
+    # from the wrong sender.
+    if user_copy_ok and not message.has_protected_content:
+        return {'kind': 'usercopy', 'message': message, 'caption': caption,
+                'overflow': overflow, 'source': source}
+
     target = media_filename(message, uid)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     on_progress = tracker.callback('down')
 
     path = None
     if not TURBO_DISABLED:
-        # Many connections at once; returns None when it cannot help, in which
-        # case we simply use pyrogram's downloader below.
-        path = await turbo.turbo_download(
-            source, message, target, TURBO_STREAMS, on_progress
+        # Best case: download and upload run together, so the wall clock is one
+        # transfer instead of two. The file comes back already uploaded and the
+        # ordered send stage just attaches it.
+        path = await turbo.pipe_transfer(
+            source, bot, message, target, TURBO_STREAMS,
+            on_progress, tracker.callback('up'),
         )
+
+        if not path:
+            # Many connections at once; returns None when it cannot help, in
+            # which case we simply use pyrogram's downloader below.
+            path = await turbo.turbo_download(
+                source, message, target, TURBO_STREAMS, on_progress
+            )
 
     if not path:
         # Never let a media post fall through silently: if turbo declined, this
@@ -424,11 +445,38 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot):
         return {'kind': 'failed', 'reason': f'post {message.id}: download returned nothing'}
 
     if settings['rename_tag'] or settings['delete_words'] or settings['replacement_words']:
-        path = rename_file_sync(
+        renamed = rename_file_sync(
             path, settings['rename_tag'], settings['delete_words'], settings['replacement_words']
         )
+        if renamed != path:
+            # keep any pre-uploaded handle pointing at the file it belongs to
+            turbo.rekey_upload(path, renamed)
+            path = renamed
 
-    return {'kind': 'file', 'message': message, 'caption': caption, 'path': path, 'overflow': overflow}
+    thumb_path = None
+    if message.video:
+        thumb_path = await fetch_source_thumb(source, message, uid)
+
+    return {'kind': 'file', 'message': message, 'caption': caption, 'path': path,
+            'overflow': overflow, 'thumb_path': thumb_path}
+
+
+async def fetch_source_thumb(source, message, uid):
+    """Download the thumbnail Telegram already made for this video.
+
+    A few KB, versus ffmpeg seeking and decoding a frame out of a multi-GB file.
+    """
+    video = message.video
+    thumbs = getattr(video, 'thumbs', None) if video else None
+    if not thumbs:
+        return None
+    try:
+        best = max(thumbs, key=lambda t: getattr(t, 'file_size', 0) or 0)
+        target = os.path.join(os.path.abspath(DOWNLOAD_DIR), str(uid),
+                              str(message.id), 'thumb.jpg')
+        return await source.download_media(best.file_id, file_name=target)
+    except Exception:
+        return None
 
 
 async def send_overflow(bot, plan, dest, reply_to):
@@ -465,6 +513,18 @@ async def upload_plan(bot, plan, uid, dest, reply_to, tracker):
         ))
         return True
 
+    if kind == 'usercopy':
+        try:
+            await with_flood(lambda: plan['source'].copy_message(
+                dest, message.chat.id, message.id,
+                caption=plan['caption'], reply_to_message_id=reply_to,
+            ))
+            await send_overflow(bot, plan, dest, reply_to)
+            return True
+        except Exception as e:
+            print(f'User-account copy failed, transferring instead: {e}')
+            return False
+
     if kind == 'copy':
         try:
             await with_flood(lambda: bot.copy_message(
@@ -489,9 +549,20 @@ async def upload_plan(bot, plan, uid, dest, reply_to, tracker):
         thumb = thumbnail(uid)
         width = height = duration = None
         if is_video:
-            meta = await get_video_metadata(path)
-            width, height, duration = meta['width'], meta['height'], meta['duration']
-            thumb = thumb or await screenshot(path, duration, uid)
+            # The source message already carries duration and dimensions, so
+            # ffprobe only has to run when Telegram did not send them. On a
+            # multi-GB video that skips a real amount of work, and generating a
+            # thumbnail with ffmpeg costs even more - reuse the source's own.
+            src_video = message.video
+            if src_video and getattr(src_video, 'duration', None):
+                width = getattr(src_video, 'width', None) or 1
+                height = getattr(src_video, 'height', None) or 1
+                duration = src_video.duration
+            else:
+                meta = await get_video_metadata(path)
+                width, height, duration = meta['width'], meta['height'], meta['duration']
+            if not thumb:
+                thumb = plan.get('thumb_path') or await screenshot(path, duration, uid)
 
         if size > TWO_GB:
             return await upload_oversized(
@@ -590,6 +661,10 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
     settings = await get_forward_settings(uid)          # one cached read for the run
     dest, reply_to = parse_destination(settings, user_chat)
 
+    # Copying through the user's account only makes sense when the destination is
+    # a channel they post to; in a DM the message would come from them, not the bot.
+    user_copy_ok = bool(settings.get('chat_id')) and user_client is not None
+
     source, source_chat, via_bot = await pick_source(bot, user_client, chat, link_type, start_id)
     if not source:
         await bot.edit_message_text(user_chat, status.id, '❌ Could not access that chat. Are you logged in and a member?')
@@ -619,7 +694,8 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
             if should_cancel(uid):
                 return {'kind': 'skip'}
             try:
-                return await prepare_message(source, message, uid, settings, tracker, via_bot)
+                return await prepare_message(source, message, uid, settings, tracker,
+                                             via_bot, user_copy_ok, bot)
             except Exception as e:
                 kind = getattr(message.media, 'name', message.media)
                 return {'kind': 'failed',
@@ -639,14 +715,16 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
 
             try:
                 sent = await upload_plan(bot, plan, uid, dest, reply_to, tracker)
-                if not sent and plan['kind'] == 'copy':
+                if not sent and plan['kind'] in ('copy', 'usercopy'):
                     # protected after all - fall back to a real transfer
                     plan = await prepare_message(
-                        source, plan['message'], uid, settings, tracker, via_bot=False
+                        source, plan['message'], uid, settings, tracker,
+                        via_bot=False, bot=bot
                     )
                     sent = await upload_plan(bot, plan, uid, dest, reply_to, tracker)
             except Exception as e:
                 sent = False
+                cleanup(plan.get('thumb_path'), uid=uid)
                 tracker.note = f'post {ids[index]}: {str(e)[:60]}'
                 problems.append(f'post {ids[index]}: {type(e).__name__}: {e}')
                 cleanup(plan.get('path'), uid=uid)

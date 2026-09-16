@@ -58,25 +58,42 @@ the low single digits regardless of how fast your server is. (Pyrogram's own
 does nothing for a single file.)
 
 Turbo keeps a warm pool of connections to the media DC and keeps many chunks in
-flight, so throughput scales close to linearly with `TURBO_STREAMS`:
+flight, so throughput scales close to linearly with `TURBO_STREAMS` — **until
+Telegram's per-account throttle is reached**, which it usually is. Past that
+point more streams do nothing, so the engine attacks the problem from three
+other directions:
 
-| Streams | Throughput at a 200 ms round trip |
+**1. Move nothing at all.** A post that is not protected is copied server side,
+which is instant no matter how big it is. The bot does this for public chats it
+can read; your logged-in account does it for private channels, which are often
+merely private rather than protected. Only genuinely protected content has to be
+transferred, and this needs a target channel set in `/settings`.
+
+**2. Download and upload at the same time.** Telegram throttles each direction
+separately, so transferring a file completely and only then sending it wastes
+half the available capacity. Each 1 MB downloaded chunk is exactly two upload
+parts, and parts may be sent in any order, so a part goes out the moment it
+arrives. With each direction capped at 6 MB/s, a 120 MB file takes 40s one after
+the other and **20s together** — the same cap, half the wall clock.
+
+**3. Skip work that Telegram already did.** A video's duration and dimensions
+come from the source message instead of ffprobe, and its thumbnail is reused
+instead of ffmpeg seeking and decoding a frame out of a multi-GB file.
+
+Stream scaling itself, measured against a simulated 200 ms link with no
+throttle:
+
+| Streams | Throughput |
 |---:|---:|
 | 1 (stock pyrogram) | ~5 MB/s |
-| 4 | ~20 MB/s |
 | 8 | ~40 MB/s |
 | **16 (default)** | **~75 MB/s** |
 | 24 | ~110 MB/s |
 
-Measured against a simulated 200 ms link, so it shows how the engine scales, not
-what your server will do — **real throughput is capped by your VPS bandwidth**.
-60–70 MB/s needs a genuinely fast host (1 Gbps or better). On a small box you
-will hit the box's limit long before the engine's.
-
-Uploads get the same treatment: `Client.save_file` is replaced, so every
-`send_video` / `send_document` call uses the parallel uploader without any
-change at the call sites. If anything goes wrong, both halves fall back to
-pyrogram's own implementation automatically.
+Real throughput is whichever comes first: your host's bandwidth, or Telegram's
+per-account limit. If `/status` shows turbo live and speeds are still in single
+digits, you are throttled — raising `TURBO_STREAMS` will not help, but the three
+mechanisms above still do.
 
 **On top of that:**
 

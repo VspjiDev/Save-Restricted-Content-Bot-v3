@@ -414,6 +414,13 @@ def install(client, streams):
     original = client.save_file
 
     async def save_file(path, file_id=None, file_part=0, progress=None, progress_args=()):
+        # Already uploaded while it was being downloaded - nothing left to send.
+        if isinstance(path, str) and file_id is None and file_part == 0:
+            done = take_upload(path)
+            if done is not None:
+                await _report(progress, progress_args, 1, 1)
+                return done
+
         # Resumed or partial uploads keep pyrogram's own bookkeeping.
         if isinstance(path, str) and file_id is None and file_part == 0:
             try:
@@ -449,3 +456,175 @@ async def warmup(client, streams):
         print(f'Turbo UNAVAILABLE ({type(e).__name__}: {e}) - '
               'transfers will fall back to plain pyrogram')
         return False
+
+
+# ── pipelined transfer ──────────────────────────────────────────────────────────
+#
+# Downloading a file completely and only then uploading it means the wall clock
+# is download + upload. Telegram throttles per account, so more streams stop
+# helping once that ceiling is hit - but the two directions are throttled
+# separately, so running them at the same time roughly halves the total.
+#
+# Each 1 MB download part is exactly two 512 KB upload parts, and
+# SaveBigFilePart accepts parts in any order, so a part can go out the moment it
+# has arrived. Chunks are handed over in memory; the bounded queue means a slow
+# upload simply backpressures the download instead of piling up.
+
+_uploaded = {}
+
+
+def register_upload(path, input_file):
+    _uploaded[os.path.abspath(path)] = input_file
+
+
+def take_upload(path):
+    return _uploaded.pop(os.path.abspath(path), None)
+
+
+def rekey_upload(old_path, new_path):
+    handle = _uploaded.pop(os.path.abspath(old_path), None)
+    if handle is not None:
+        handle.name = os.path.basename(new_path)
+        _uploaded[os.path.abspath(new_path)] = handle
+
+
+async def pipe_transfer(src, dst, message, dest, streams, on_down=None, on_up=None):
+    """Download and upload a file at the same time.
+
+    Returns the path on success, having already uploaded it, or None to let the
+    caller do things the ordinary way.
+    """
+    media = get_media(message)
+    file_size = getattr(media, 'file_size', 0) or 0
+    if not media or file_size <= BIG_FILE_THRESHOLD:
+        return None
+    if file_size > 2000 * 1024 * 1024:
+        return None                      # the >2GB path uploads via the userbot
+
+    up_total = math.ceil(file_size / UPLOAD_PART)
+    if up_total > MAX_PARTS:
+        return None
+
+    try:
+        file_id = FileId.decode(media.file_id)
+        location = _location(file_id)
+        down_sessions = await get_pool(src, file_id.dc_id, streams)
+        up_sessions = await get_pool(dst, await dst.storage.dc_id(), streams)
+    except Exception as e:
+        note_failure(f'pipe setup: {type(e).__name__}: {e}')
+        return None
+
+    if not down_sessions or not up_sessions:
+        note_failure('pipe setup: no usable connections')
+        return None
+
+    down_total = math.ceil(file_size / DOWNLOAD_PART)
+    parts = iter(range(down_total))
+    upload_id = dst.rnd_id()
+    queue = asyncio.Queue(maxsize=max(2, streams * 2))
+    downloaded = uploaded = 0
+    failure = None
+
+    os.makedirs(os.path.dirname(dest) or '.', exist_ok=True)
+    fd = os.open(dest, os.O_CREAT | os.O_WRONLY | os.O_TRUNC)
+
+    async def down_worker(session):
+        nonlocal downloaded, failure
+        while failure is None:
+            index = next(parts, None)
+            if index is None:
+                return
+            offset = index * DOWNLOAD_PART
+            for attempt in range(5):
+                try:
+                    result = await session.invoke(raw.functions.upload.GetFile(
+                        location=location, offset=offset, limit=DOWNLOAD_PART,
+                    ), sleep_threshold=30)
+                    break
+                except FloodWait as e:
+                    await asyncio.sleep(e.value + 1)
+                except Exception as e:
+                    if attempt == 4:
+                        failure = e
+                        return
+                    await asyncio.sleep(0.5 * (attempt + 1))
+            else:
+                failure = RuntimeError('chunk retries exhausted')
+                return
+
+            if not isinstance(result, raw.types.upload.File):
+                failure = RuntimeError('CDN redirect not supported')
+                return
+
+            chunk = result.bytes
+            if not chunk:
+                continue
+
+            _pwrite(fd, chunk, offset)
+            downloaded += len(chunk)
+            await _report(on_down, (), min(downloaded, file_size), file_size)
+
+            for step in range(0, len(chunk), UPLOAD_PART):
+                await queue.put((index * 2 + step // UPLOAD_PART,
+                                 chunk[step:step + UPLOAD_PART]))
+
+    async def up_worker(session):
+        nonlocal uploaded, failure
+        while True:
+            item = await queue.get()
+            try:
+                if item is None:
+                    return
+                if failure is not None:
+                    continue
+                part_index, data = item
+                for attempt in range(5):
+                    try:
+                        await session.invoke(raw.functions.upload.SaveBigFilePart(
+                            file_id=upload_id, file_part=part_index,
+                            file_total_parts=up_total, bytes=data,
+                        ), sleep_threshold=30)
+                        break
+                    except FloodWait as e:
+                        await asyncio.sleep(e.value + 1)
+                    except Exception as e:
+                        if attempt == 4:
+                            failure = e
+                            return
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                else:
+                    failure = RuntimeError('part retries exhausted')
+                    return
+                uploaded += len(data)
+                await _report(on_up, (), min(uploaded, file_size), file_size)
+            finally:
+                queue.task_done()
+
+    try:
+        uploaders = [asyncio.create_task(up_worker(s)) for s in up_sessions[:streams]]
+        await asyncio.gather(*(down_worker(s) for s in down_sessions[:streams]))
+        for _ in uploaders:
+            await queue.put(None)
+        await asyncio.gather(*uploaders)
+
+        if failure is not None:
+            raise failure
+        if downloaded < file_size or uploaded < file_size:
+            raise RuntimeError(
+                f'incomplete: down {downloaded}, up {uploaded}, need {file_size}')
+    except Exception as e:
+        for task in uploaders:
+            task.cancel()
+        os.close(fd)
+        try:
+            os.remove(dest)
+        except OSError:
+            pass
+        note_failure(f'pipe: {type(e).__name__}: {e}')
+        return None
+    else:
+        os.close(fd)
+
+    register_upload(dest, raw.types.InputFileBig(
+        id=upload_id, parts=up_total, name=os.path.basename(dest)))
+    return dest
