@@ -1,0 +1,11 @@
+.git
+.github
+.env
+*.session
+*.session-journal
+__pycache__/
+*.py[cod]
+downloads/
+*.jpg
+LICENSE
+README.md

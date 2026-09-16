@@ -18,6 +18,10 @@ load_dotenv()
 # Put your values in a .env file (it is gitignored) or in your host's env vars.
 
 
+_MISSING = []
+_BAD = []
+
+
 def _need(name, hint=''):
     value = os.getenv(name, '').strip()
     if not value:
@@ -25,7 +29,26 @@ def _need(name, hint=''):
     return value
 
 
-_MISSING = []
+def _int(name, default=0):
+    """Read an optional integer setting without crash-looping on a typo."""
+    raw = (os.getenv(name) or '').strip().replace(' ', '')
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        _BAD.append(f'  {name:<12} must be a whole number, got {raw!r}')
+        return default
+
+
+def _ids(name, raw):
+    """Accept '123', '123 456' and '123,456' alike - people paste all three."""
+    parts = [p for p in raw.replace(',', ' ').split() if p]
+    try:
+        return [int(p) for p in parts]
+    except ValueError:
+        _BAD.append(f'  {name:<12} must be numeric user id(s), got {raw!r}')
+        return []
 
 # ─── BOT / DATABASE CONFIG ──────────────────────────────────────────────────────
 _API_ID      = _need('API_ID', 'from https://my.telegram.org')
@@ -36,9 +59,9 @@ DB_NAME      = os.getenv('DB_NAME', 'telegram_downloader')
 
 # ─── OWNER / CONTROL SETTINGS ───────────────────────────────────────────────────
 _OWNER_ID    = _need('OWNER_ID', 'your Telegram user id (space separated for several)')
-STRING       = os.getenv('STRING') or None          # premium session, only for >2GB uploads
-LOG_GROUP    = int(os.getenv('LOG_GROUP') or 0)     # staging chat for >2GB uploads
-FORCE_SUB    = int(os.getenv('FORCE_SUB') or 0)     # 0 = disabled
+STRING       = (os.getenv('STRING') or '').strip() or None  # premium session, >2GB uploads
+LOG_GROUP    = _int('LOG_GROUP')                    # staging chat for >2GB uploads
+FORCE_SUB    = _int('FORCE_SUB')                    # 0 = disabled
 
 # ─── SECURITY KEYS ──────────────────────────────────────────────────────────────
 # Used to encrypt the session strings stored in MongoDB. Pick your own random
@@ -47,15 +70,20 @@ FORCE_SUB    = int(os.getenv('FORCE_SUB') or 0)     # 0 = disabled
 MASTER_KEY   = _need('MASTER_KEY', '32 random characters, session encryption')
 IV_KEY       = _need('IV_KEY', '12 random characters, session encryption')
 
-if _MISSING:
-    sys.exit(
-        'Missing required environment variables:\n\n'
-        + '\n'.join(_MISSING)
-        + '\n\nSet them in a .env file or your host config, then start again.\n'
-    )
+API_ID   = _int('API_ID')
+OWNER_ID = _ids('OWNER_ID', _OWNER_ID)
 
-API_ID   = int(_API_ID)
-OWNER_ID = list(map(int, _OWNER_ID.split()))
+if _MISSING or _BAD:
+    report = ['Cannot start — check your config.\n']
+    if _MISSING:
+        report.append('Missing required settings:\n' + '\n'.join(_MISSING) + '\n')
+    if _BAD:
+        report.append('Invalid settings:\n' + '\n'.join(_BAD) + '\n')
+    report.append(
+        'On Heroku set these under Settings -> Config Vars, then restart the dyno.\n'
+        'Running locally? Copy .env.example to .env and fill it in.\n'
+    )
+    sys.exit('\n'.join(report))
 
 # ─── BRANDING ───────────────────────────────────────────────────────────────────
 BRAND     = os.getenv('BRAND', 'Vsp Official')

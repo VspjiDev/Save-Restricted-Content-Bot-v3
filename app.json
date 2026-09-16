@@ -1,6 +1,7 @@
 {
   "name": "Vsp Official - Restricted Content Saver",
   "description": "Fast forwarder for restricted private and public Telegram channels",
+  "repository": "https://github.com/VspjiDev/Save-Restricted-Content-Bot-v3",
   "keywords": [
     "python3",
     "telegram",
@@ -8,9 +9,15 @@
     "pyrogram",
     "forwarder"
   ],
+  "stack": "container",
+  "formation": {
+    "web": {
+      "quantity": 1
+    }
+  },
   "env": {
     "API_ID": {
-      "description": "Get this value from https://my.telegram.org",
+      "description": "Get this from https://my.telegram.org (numbers only)",
       "value": "",
       "required": true
     },
@@ -25,12 +32,12 @@
       "required": true
     },
     "MONGO_DB": {
-      "description": "MongoDB connection URL (https://cloud.mongodb.com)",
+      "description": "MongoDB connection URL. Get a free one at https://cloud.mongodb.com",
       "value": "",
       "required": true
     },
     "OWNER_ID": {
-      "description": "User ID(s) to be set as bot owner(s), separated by space (e.g., 1234 5678)",
+      "description": "Your Telegram user id. For several, separate with spaces or commas",
       "value": "",
       "required": true
     },
@@ -40,33 +47,33 @@
       "required": false
     },
     "STRING": {
-      "description": "Pyrogram session string of a Telegram Premium account. Required only for uploads above 2GB",
+      "description": "Optional. Pyrogram session string of a Telegram Premium account. Required only for uploads above 2GB",
       "value": "",
       "required": false
     },
     "LOG_GROUP": {
-      "description": "Channel/group ID (with -100 prefix) used to stage files above 2GB. The bot must be admin there",
+      "description": "Optional. Channel/group ID (with -100 prefix) used to stage files above 2GB. The bot must be admin there",
       "value": "",
       "required": false
     },
     "FORCE_SUB": {
-      "description": "Channel ID (with -100 prefix) users must join. Leave 0 to disable",
+      "description": "Optional. Channel ID (with -100 prefix) users must join. Leave 0 to disable",
       "value": "0",
       "required": false
     },
     "MASTER_KEY": {
-      "description": "Master key used for session encryption. Change this to your own value",
-      "value": "",
-      "required": true
+      "description": "Session encryption key (MASTER_KEY), generated for you. Changing it later forces every user to /login again",
+      "generator": "secret",
+      "required": false
     },
     "IV_KEY": {
-      "description": "Initialization vector key for session encryption. Change this to your own value",
-      "value": "",
-      "required": true
+      "description": "Session encryption key (IV_KEY), generated for you. Changing it later forces every user to /login again",
+      "generator": "secret",
+      "required": false
     },
     "WORKERS": {
-      "description": "How many files are downloaded in parallel per batch",
-      "value": "4",
+      "description": "How many files are downloaded in parallel per batch. Keep this low on Heroku, the dyno only has ~1GB of temp disk",
+      "value": "2",
       "required": false
     },
     "BATCH_DELAY": {
@@ -98,7 +105,11 @@
       "description": "Connections opened per file by the turbo engine. Main speed lever; 8-24, lower it if you hit FloodWait",
       "value": "16",
       "required": false
+    },
+    "DOWNLOAD_DIR": {
+      "description": "Temp media directory",
+      "value": "downloads",
+      "required": false
     }
-  },
-  "stack": "container"
+  }
 }

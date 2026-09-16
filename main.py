@@ -34,12 +34,24 @@ class Health(BaseHTTPRequestHandler):
 
 
 def start_health_server():
+    """Bind the port before anything slow happens.
+
+    A Heroku web dyno is killed with R10 if it has not bound $PORT within 60
+    seconds, and starting the Telegram clients can take longer than that, so
+    this has to come first.
+    """
     try:
         server = ThreadingHTTPServer(('0.0.0.0', PORT), Health)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         print(f'Health server listening on :{PORT}')
     except Exception as e:
-        print(f'Health server not started: {e}')
+        if os.getenv('DYNO'):       # on Heroku an unbound port is fatal anyway
+            sys.exit(
+                f'Could not bind $PORT ({PORT}): {e}\n'
+                'A Heroku web dyno must bind the port it is given, so it would '
+                'be killed with R10 shortly. Restart the dyno.'
+            )
+        print(f'Health server not started ({e}), continuing without it.')
 
 
 async def load_and_run_plugins():

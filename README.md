@@ -1,5 +1,7 @@
 # Vsp Official — Restricted Content Saver 🚀
 
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/VspjiDev/Save-Restricted-Content-Bot-v3)
+
 A Telegram bot that does exactly one thing: **save and forward posts from
 restricted private and public channels**, as fast as the link allows.
 
@@ -96,13 +98,48 @@ the same order as the source channel**.
 
 ## Deploy
 
+### Heroku (one click)
+
+Click the button at the top. You will be asked for five things:
+
+| Field | Where to get it |
+|---|---|
+| `API_ID`, `API_HASH` | https://my.telegram.org |
+| `BOT_TOKEN` | @BotFather |
+| `MONGO_DB` | a free cluster at https://cloud.mongodb.com |
+| `OWNER_ID` | your numeric Telegram user id |
+
+`MASTER_KEY` and `IV_KEY` are generated for you, everything else has a sensible
+default. Deploy, and the bot starts on its own — the app runs as a `web` dyno
+(the one the deploy button scales automatically) and serves a small status page
+at your app URL, which doubles as a health check.
+
+**Worth knowing before you deploy:**
+
+* **Eco dynos sleep** after 30 minutes without a web request, and a sleeping bot
+  answers nothing. Either use a Basic dyno (no sleeping) or point an uptime
+  pinger at your app URL.
+* **Heroku restarts every dyno about once a day.** A batch running at that
+  moment stops where it is; just run it again.
+* **The disk is small and temporary** (~1 GB, wiped on restart). `WORKERS`
+  defaults to `2` on Heroku for that reason, since each worker holds one whole
+  file while it uploads. Custom thumbnails are also lost on restart — logins are
+  not, those live in MongoDB.
+* **Bandwidth is the real speed limit.** The turbo engine will use whatever the
+  dyno gives it, but a Heroku dyno is not a 1 Gbps box, so expect well under the
+  numbers in the table above. A VPS gets closer to them.
+* Changing `MASTER_KEY` or `IV_KEY` later makes every stored login unreadable,
+  so users would have to `/login` again. Set them once and leave them alone.
+
+### Local or VPS
+
 ```bash
 cp .env.example .env     # fill it in
 pip install -r requirements.txt
 python3 main.py
 ```
 
-Docker:
+### Docker
 
 ```bash
 docker build -t vsp-saver . && docker run --env-file .env vsp-saver
@@ -139,12 +176,12 @@ it. Without it the bot still works, just without generated thumbnails.
 | `BRAND` | `Vsp Official` | Name shown across the bot |
 | `JOIN_LINK` | – | Optional updates channel shown on `/start` |
 | `DOWNLOAD_DIR` | `downloads` | Temp media directory |
-| `PORT` | `8080` | Keep-alive HTTP port |
+| `PORT` | `8080` | Status page port. Heroku sets this itself — do not override it |
 
 ### Tuning
 
 * Fast VPS (1 Gbps+) → `TURBO_STREAMS=24`, `WORKERS=6`
-* Small box or slow disk → `TURBO_STREAMS=8`, `WORKERS=2`
+* Heroku or a small box → `TURBO_STREAMS=8`, `WORKERS=2`
 * Getting FloodWait → lower `TURBO_STREAMS` first, then set `BATCH_DELAY=2`
 
 Each worker holds one file on disk, so peak temp usage is about
