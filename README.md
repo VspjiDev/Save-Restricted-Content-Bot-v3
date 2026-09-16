@@ -118,10 +118,17 @@ Each parallel worker holds one file on disk, so peak temp usage is roughly
 
 ## Security note
 
-The repository history contains committed `API_ID` / `API_HASH` / `BOT_TOKEN` /
-`MONGO_DB` / `MASTER_KEY` values as fallback defaults in `config.py`. **Rotate
-them and supply your own via environment variables** — anyone who reads the repo
-can otherwise use them.
+`config.py` used to ship working `API_ID` / `API_HASH` / `BOT_TOKEN` / `MONGO_DB`
+/ `MASTER_KEY` values as fallback defaults. They are gone — every credential now
+comes from the environment and the bot refuses to start with a clear message if
+one is missing.
+
+**Those old values are still in the git history, so rotate them:** a new bot
+token from @BotFather, new MongoDB credentials, and fresh `MASTER_KEY` /
+`IV_KEY`. Note that changing the key pair makes stored logins unreadable, so
+users will have to `/login` again.
+
+Copy `.env.example` to `.env` and fill it in.
 
 ---
 
