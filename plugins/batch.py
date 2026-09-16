@@ -23,6 +23,7 @@ import time
 from typing import Any, Dict, Optional
 
 from pyrogram import filters
+from pyrogram.enums import MessageMediaType
 from pyrogram.errors import FloodWait, MessageNotModified
 
 from config import (
@@ -64,6 +65,21 @@ Z: Dict[int, Dict[str, Any]] = {}       # uid -> conversation state
 ACTIVE: Dict[int, Dict[str, Any]] = {}  # uid -> running batch
 
 TWO_GB = 2000 * 1024 * 1024
+
+# Telegram caps a media caption at 1024 characters but allows 4096 in a plain
+# message. Going over does not truncate, it rejects the whole send with
+# MEDIA_CAPTION_TOO_LONG - which loses the file, not just the extra words.
+CAPTION_LIMIT = 1024
+TEXT_LIMIT = 4096
+
+# Media types with no file behind them. Built defensively: a pyrogram version
+# that does not know one of these simply leaves it out.
+TEXT_ONLY_MEDIA = {
+    getattr(MessageMediaType, name, None) for name in (
+        'WEB_PAGE_PREVIEW', 'POLL', 'CONTACT', 'LOCATION', 'VENUE',
+        'DICE', 'GAME', 'GIVEAWAY', 'GIVEAWAY_RESULT', 'INVOICE', 'TODO', 'STORY',
+    )
+} - {None}
 
 
 def is_user_active(uid: int) -> bool:
@@ -315,12 +331,25 @@ async def with_flood(factory, retries: int = 3):
 # ── per message work ────────────────────────────────────────────────────────────
 
 def build_caption(message, settings):
+    """Returns (caption, overflow).
+
+    Anything past Telegram's media-caption limit is handed back separately so it
+    can follow as its own message. Silently dropping it would lose text; leaving
+    it in would make Telegram reject the file.
+    """
     original = message.caption.markdown if message.caption else ''
     processed = apply_text_rules(original, settings['replacement_words'], settings['delete_words'])
     custom = settings['caption'] or ''
     if processed and custom:
-        return f'{processed}\n\n{custom}'
-    return custom or processed or None
+        full = f'{processed}\n\n{custom}'
+    else:
+        full = custom or processed
+
+    if not full:
+        return None, None
+    if len(full) <= CAPTION_LIMIT:
+        return full, None
+    return full[:CAPTION_LIMIT], full[CAPTION_LIMIT:][:TEXT_LIMIT]
 
 
 def media_filename(message, uid):
@@ -345,7 +374,7 @@ def media_filename(message, uid):
 
 async def prepare_message(source, message, uid, settings, tracker, via_bot):
     """Download stage. Returns a plan the ordered upload stage can execute."""
-    caption = build_caption(message, settings)
+    caption, overflow = build_caption(message, settings)
 
     if not message.media:
         if message.text:
@@ -356,9 +385,13 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot):
         return {'kind': 'sticker', 'message': message}
 
     # A link preview, poll, contact or location counts as "media" but has no file
-    # behind it. Send the words rather than failing on a download that cannot
-    # happen.
-    if turbo.get_media(message) is None:
+    # behind it, so send the words instead of attempting an impossible download.
+    #
+    # This is decided from the media type, never from whether we recognise the
+    # attribute: treating "I don't know this one" as "it has no file" is how a
+    # real PDF turns into a caption-only message. Anything not listed here gets
+    # a download attempt, and pyrogram handles more types than turbo does.
+    if message.media in TEXT_ONLY_MEDIA:
         body = message.text or message.caption
         if body:
             return {'kind': 'text', 'message': message, 'text': body.markdown}
@@ -367,7 +400,7 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot):
     # Fastest possible path: the bot can read the post and it is not protected,
     # so Telegram copies it server side and nothing is transferred.
     if via_bot and not message.has_protected_content:
-        return {'kind': 'copy', 'message': message, 'caption': caption}
+        return {'kind': 'copy', 'message': message, 'caption': caption, 'overflow': overflow}
 
     target = media_filename(message, uid)
     os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -395,7 +428,19 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot):
             path, settings['rename_tag'], settings['delete_words'], settings['replacement_words']
         )
 
-    return {'kind': 'file', 'message': message, 'caption': caption, 'path': path}
+    return {'kind': 'file', 'message': message, 'caption': caption, 'path': path, 'overflow': overflow}
+
+
+async def send_overflow(bot, plan, dest, reply_to):
+    """Caption text that did not fit follows the file as its own message."""
+    overflow = plan.get('overflow')
+    if not overflow:
+        return
+    try:
+        await with_flood(lambda: bot.send_message(
+            dest, overflow, reply_to_message_id=reply_to, disable_web_page_preview=True))
+    except Exception as e:
+        print(f'Could not send caption overflow: {e}')
 
 
 async def upload_plan(bot, plan, uid, dest, reply_to, tracker):
@@ -426,6 +471,7 @@ async def upload_plan(bot, plan, uid, dest, reply_to, tracker):
                 dest, message.chat.id, message.id,
                 caption=plan['caption'], reply_to_message_id=reply_to,
             ))
+            await send_overflow(bot, plan, dest, reply_to)
             return True
         except Exception as e:
             print(f'Server side copy failed, falling back: {e}')
@@ -476,6 +522,8 @@ async def upload_plan(bot, plan, uid, dest, reply_to, tracker):
             await with_flood(lambda: bot.send_document(
                 dest, path, caption=caption, thumb=thumb, force_document=True,
                 progress=progress, reply_to_message_id=reply_to))
+
+        await send_overflow(bot, plan, dest, reply_to)
         return True
     finally:
         cleanup(path, thumb, uid)
@@ -500,6 +548,7 @@ async def upload_oversized(bot, plan, uid, dest, reply_to, tracker,
             LOG_GROUP, path, caption=caption, thumb=thumb, force_document=True, progress=progress))
 
     await with_flood(lambda: bot.copy_message(dest, LOG_GROUP, sent.id, reply_to_message_id=reply_to))
+    await send_overflow(bot, plan, dest, reply_to)
     return True
 
 
@@ -572,8 +621,9 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
             try:
                 return await prepare_message(source, message, uid, settings, tracker, via_bot)
             except Exception as e:
+                kind = getattr(message.media, 'name', message.media)
                 return {'kind': 'failed',
-                        'reason': f'post {message.id}: {type(e).__name__}: {e}'}
+                        'reason': f'post {message.id} ({kind}): {type(e).__name__}: {e}'}
 
     try:
         for index in range(count):

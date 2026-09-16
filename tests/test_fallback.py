@@ -25,8 +25,9 @@ for key, value in {
 }.items():
     os.environ.setdefault(key, value)
 
-import plugins.batch as B          # noqa: E402
-import utils.turbo as T            # noqa: E402
+from pyrogram.enums import MessageMediaType    # noqa: E402
+import plugins.batch as B                       # noqa: E402
+import utils.turbo as T                         # noqa: E402
 
 B.PROGRESS_INTERVAL = 0.02
 FAILS = []
@@ -43,7 +44,10 @@ class Msg:
     def __init__(self, mid, size=20 * 1024 * 1024, kind='document'):
         self.id = mid
         self.text = self.caption = None
-        self.media = kind is not None
+        self.media = {
+            'document': MessageMediaType.DOCUMENT,
+            'webpage': MessageMediaType.WEB_PAGE_PREVIEW,
+        }.get(kind)
         self.has_protected_content = True
         self.chat = type('C', (), {'id': -100999})()
         self.empty = False
