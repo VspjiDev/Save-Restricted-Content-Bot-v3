@@ -80,7 +80,7 @@ class FakeBot:
         self.live = 0
         self.peak = 0
 
-    async def edit_message_text(self, chat, mid, text):
+    async def edit_message_text(self, chat, mid, text, reply_markup=None, **kw):
         self.status.append(text)
 
     async def send_message(self, dest, text, **kw):
@@ -206,7 +206,7 @@ async def main():
     await B.run_batch(bot, src, '999', 'private', 300, 6, 4242, 555, type('S', (), {'id': 7})())
     B.ACTIVE.pop(4242, None)
     check('5 of 6 survived', len([1 for t, _ in bot.sent if t == 'video']), 5)
-    check('failure reported', '❌ 1 failed' in bot.status[-1], True)
+    check('failure reported', '**Failed**: 1' in bot.status[-1], True)
     check('good posts still in order', [n for t, n in bot.sent if t == 'video'],
           [f'clip_{i}.mp4' for i in (300, 301, 303, 304, 305)])
 

@@ -86,7 +86,7 @@ class Bot:
         self.sent = []
         self.status = []
 
-    async def edit_message_text(self, chat, mid, text):
+    async def edit_message_text(self, chat, mid, text, reply_markup=None, **kw):
         self.status.append(text)
 
     async def send_message(self, dest, text, **kw):

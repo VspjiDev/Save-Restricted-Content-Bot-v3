@@ -73,7 +73,7 @@ class Bot:
         self.sending = 0
         self.peak_sends = 0
 
-    async def edit_message_text(self, chat, mid, text):
+    async def edit_message_text(self, chat, mid, text, reply_markup=None, **kw):
         self.status.append(text)
 
     async def save_file(self, path, progress=None, **kw):

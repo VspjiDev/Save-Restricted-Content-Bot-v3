@@ -86,7 +86,7 @@ class Bot:
         self.sent = []
         self.status = []
 
-    async def edit_message_text(self, chat, mid, text):
+    async def edit_message_text(self, chat, mid, text, reply_markup=None, **kw):
         self.status.append(text)
 
     async def send_message(self, dest, text, **kw):
@@ -145,7 +145,7 @@ async def main():
     docs = [n for kind, n in bot.sent if kind == 'document']
     check('all 4 media still delivered', len(docs), 4)
     check('via pyrogram fallback', src.calls, 4)
-    check('reported as sent, not failed', '4/4 sent' in bot.status[-1], True)
+    check('reported as sent, not failed', '**Sent**: 4 of 4' in bot.status[-1], True)
     check('turbo failure was recorded', bool(T.STATE['last_error']), True)
 
     print('\nan exception mid-download also falls back')
@@ -158,7 +158,7 @@ async def main():
     msgs = {30 + i: Msg(30 + i, kind='webpage') for i in range(3)}
     src, bot = await run(msgs)
     check('sent as text', len([1 for k, _ in bot.sent if k == 'text']), 3)
-    check('nothing marked failed', '❌ 0 failed' in bot.status[-1], True)
+    check('nothing marked failed', 'Failed' not in bot.status[-1], True)
 
     print('\na genuine failure explains itself in the summary')
     msgs = {40: Msg(40)}
@@ -177,7 +177,7 @@ async def main():
     B.ACTIVE[7] = {'cancel': False}
     await B.run_batch(bot, src, '9', 'private', 40, 1, 7, 5, type('S', (), {'id': 1})())
     B.ACTIVE.pop(7, None)
-    check('failure counted', '❌ 1 failed' in bot.status[-1], True)
+    check('failure counted', '**Failed**: 1' in bot.status[-1], True)
     check('reason shown to the user', 'no space left on device' in bot.status[-1], True)
 
     shutil.rmtree('downloads', ignore_errors=True)

@@ -12,11 +12,15 @@ itself; there is nothing extra to set up.
 
 ---
 
-## Commands
+## Using it
+
+**Paste a post link.** The bot recognises it and offers what to do — this post,
+or a batch from here — then quick counts for a batch. The commands below are a
+shortcut, not something you have to remember.
 
 | Command | What it does |
 |---|---|
-| `/start` | Intro and quick setup |
+| `/start` | Intro plus a setup checklist |
 | `/single` | Extract one post from a link |
 | `/batch` | Bulk extract starting at a link (up to 10,000 posts) |
 | `/stop` | Cancel the running batch |
@@ -24,6 +28,8 @@ itself; there is nothing extra to set up.
 | `/logout` | Remove your session |
 | `/settings` | Target chat, caption, rename tag, word rules, thumbnail |
 | `/status` | Your login, target chat and engine status |
+
+A running batch carries its own **Stop** button, and `/settings` shows what each setting is currently set to rather than just its name. Any handler that fails says so instead of leaving the bot silent.
 | `/set` | (owner) push the command list to BotFather |
 
 Supported links:

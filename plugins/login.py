@@ -8,6 +8,7 @@ import logging
 import os
 from config import API_HASH, API_ID, BRAND
 from shared_client import app as bot
+from utils.safe import safe
 from utils.func import save_user_session, get_user_data, remove_user_session
 from utils.encrypt import ecs, dcs
 from plugins.batch import UC
@@ -22,6 +23,7 @@ STEP_PASSWORD = 3
 login_cache = {}
 
 @bot.on_message(filters.command('login'))
+@safe
 async def login_command(client, message):
     user_id = message.from_user.id
     set_user_step(user_id, STEP_PHONE)
@@ -37,6 +39,7 @@ Example: `+12345678900`"""
 @bot.on_message(login_in_progress & filters.text & filters.private & ~filters.command([
     'start', 'help', 'status', 'set', 'settings', 'batch', 'single',
     'cancel', 'stop', 'login', 'logout']))
+@safe
 async def handle_login_steps(client, message):
     user_id = message.from_user.id
     text = message.text.strip()
@@ -149,6 +152,7 @@ async def edit_message_safely(message, text):
         logger.error(f'Error editing message: {e}')
         
 @bot.on_message(filters.command('cancel') & login_in_progress)
+@safe
 async def cancel_command(client, message):
     user_id = message.from_user.id
     await message.delete()
@@ -170,6 +174,7 @@ async def cancel_command(client, message):
         await temp_msg.delete(5)
         
 @bot.on_message(filters.command('logout'))
+@safe
 async def logout_command(client, message):
     user_id = message.from_user.id
     await message.delete()

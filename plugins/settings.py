@@ -11,18 +11,38 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from config import BRAND
 from shared_client import app
 from utils.custom_filters import settings_in_progress, set_settings_step, get_settings_step
+from utils.safe import safe
 from utils.func import (
     VIDEO_EXTENSIONS,
+    get_user_data,
     get_user_data_key,
     invalidate_user_cache,
     save_user_data,
     users_collection,
 )
 
-MESS = (
-    f"⚙️ **{BRAND} — Settings**\n\n"
-    "Choose where your extracted posts go and how they look."
-)
+def short(value, limit=28):
+    text = str(value).replace('\n', ' ').strip()
+    return (text[:limit] + '…') if len(text) > limit else text
+
+
+async def settings_text(user_id):
+    """Show what each setting is currently set to, not just its name."""
+    data = await get_user_data(user_id, cached=False) or {}
+    words = data.get('delete_words') or []
+    swaps = data.get('replacement_words') or {}
+    lines = [
+        f"📝 **Target chat** — {('`' + short(data['chat_id']) + '`') if data.get('chat_id') else '_this chat_'}",
+        f"🏷️ **Rename tag** — {short(data['rename_tag']) if data.get('rename_tag') else '_none_'}",
+        f"📋 **Caption** — {short(data['caption']) if data.get('caption') else '_original kept_'}",
+        f"🔄 **Replacements** — {len(swaps) or '_none_'}",
+        f"🗑️ **Removed words** — {len(words) or '_none_'}",
+        f"🖼️ **Thumbnail** — {'set' if os.path.exists(f'{user_id}.jpg') else '_none_'}",
+    ]
+    return f"⚙️ **{BRAND} — Settings**\n\n" + '\n'.join(lines) + '\n\nTap anything to change it.'
+
+
+MESS = f"⚙️ **{BRAND} — Settings**"
 
 PROMPTS = {
     'setchat': (
@@ -63,11 +83,22 @@ def settings_keyboard():
 
 
 @app.on_message(filters.command('settings') & filters.private)
+@safe
 async def settings_command(client, message):
-    await message.reply_text(MESS, reply_markup=settings_keyboard())
+    await message.reply_text(await settings_text(message.from_user.id),
+                             reply_markup=settings_keyboard())
+
+
+@app.on_callback_query(filters.regex('^open_settings$'))
+@safe
+async def open_settings(client, query):
+    await query.message.reply_text(await settings_text(query.from_user.id),
+                                   reply_markup=settings_keyboard())
+    await query.answer()
 
 
 @app.on_callback_query(filters.regex(r'^st_'))
+@safe
 async def settings_callback(client, query):
     user_id = query.from_user.id
     action = query.data.split('_', 1)[1]
@@ -102,7 +133,9 @@ async def settings_callback(client, query):
             invalidate_user_cache(user_id)
             if os.path.exists(f'{user_id}.jpg'):
                 os.remove(f'{user_id}.jpg')
-            await query.message.reply_text('✅ All settings reset. To log out use /logout.')
+            await query.message.reply_text('✅ Settings reset.')
+            await query.message.reply_text(await settings_text(user_id),
+                                           reply_markup=settings_keyboard())
         except Exception as e:
             await query.message.reply_text(f'❌ Error resetting settings: {e}')
 
@@ -117,12 +150,14 @@ async def settings_callback(client, query):
 
 
 @app.on_message(filters.command('cancel') & filters.private & settings_in_progress)
+@safe
 async def cancel_settings(client, message):
     set_settings_step(message.from_user.id, None)
     await message.reply_text('✅ Cancelled.')
 
 
 @app.on_message(settings_in_progress & filters.private & (filters.text | filters.photo))
+@safe
 async def settings_input(client, message):
     user_id = message.from_user.id
     step = get_settings_step(user_id)
@@ -144,8 +179,10 @@ async def settings_input(client, message):
     if handler:
         try:
             await handler(message, user_id)
+            await message.reply_text(await settings_text(user_id),
+                                     reply_markup=settings_keyboard())
         except Exception as e:
-            await message.reply_text(f'❌ Error: {e}')
+            await message.reply_text(f'❌ Could not save that: {e}')
     set_settings_step(user_id, None)
 
 

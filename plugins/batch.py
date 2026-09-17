@@ -24,6 +24,7 @@ from typing import Any, Dict, Optional
 
 from pyrogram import filters
 from pyrogram.enums import MessageMediaType
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import FloodWait, MessageNotModified
 
 from config import (
@@ -43,6 +44,7 @@ from shared_client import app as X, build_client, turbocharge, userbot as Y
 from utils import turbo
 from utils.custom_filters import login_in_progress, settings_in_progress
 from utils.encrypt import dcs
+from utils.safe import safe
 from utils.func import (
     AUDIO_EXTENSIONS,
     E,
@@ -304,7 +306,8 @@ class Tracker:
             return
         self._last_text = text
         try:
-            await self.client.edit_message_text(self.chat_id, self.message_id, text)
+            await self.client.edit_message_text(
+                self.chat_id, self.message_id, text, reply_markup=stop_button())
         except (MessageNotModified, FloodWait):
             pass
         except Exception:
@@ -703,14 +706,23 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
 
     source, source_chat, via_bot = await pick_source(bot, user_client, chat, link_type, start_id)
     if not source:
-        await bot.edit_message_text(user_chat, status.id, '❌ Could not access that chat. Are you logged in and a member?')
+        await bot.edit_message_text(
+            user_chat, status.id,
+            '🔒 **Cannot read that chat**\n\n'
+            'For a private channel the logged-in account has to be a member of it.\n\n'
+            '• Not logged in yet? Send /login\n'
+            '• Logged in? Open the channel once from that account, then try again')
         return
 
     ids = [start_id + offset for offset in range(count)]
     await bot.edit_message_text(user_chat, status.id, f'🔎 Fetching {count} post(s)...')
     messages = await fetch_messages(source, source_chat, ids)
     if not messages:
-        await bot.edit_message_text(user_chat, status.id, '❌ No messages found at that link.')
+        await bot.edit_message_text(
+            user_chat, status.id,
+            '🤷 **Nothing found there**\n\n'
+            'The posts may have been deleted, or the link points past the end of '
+            'the channel. Check the link and try again.')
         return
 
     tracker = Tracker(bot, user_chat, status.id, count)
@@ -795,11 +807,14 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
 
         elapsed = duration(time.time() - tracker.start)
         moved = human_bytes(tracker.downloaded + tracker.uploaded)
+        headline = '🛑 **Stopped**' if should_cancel(uid) else (
+            '✅ **All done**' if not tracker.fail else '⚠️ **Finished with some failures**')
         summary = (
-            ('🛑 **Cancelled**' if should_cancel(uid) else '✅ **Completed**') + '\n\n'
-            f'📦 Posts: {tracker.ok}/{count} sent · ❌ {tracker.fail} failed\n'
-            f'📊 Transferred: {moved}\n'
-            f'⏱ Took: {elapsed}  ·  {WORKERS} at a time'
+            f'{headline}\n\n'
+            f'📦 **Sent**: {tracker.ok} of {count}'
+            + (f'  ·  ❌ **Failed**: {tracker.fail}' if tracker.fail else '') + '\n'
+            f'📊 **Moved**: {moved}\n'
+            f'⏱ **Took**: {elapsed}  ·  {WORKERS} at a time'
         )
         if problems:
             shown = '\n'.join(f'· `{p[:150]}`' for p in problems[:3])
@@ -810,7 +825,7 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
             summary += f"\n\n⚠️ Turbo inactive: `{turbo.STATE['last_error'][:150]}`"
 
         try:
-            await bot.edit_message_text(user_chat, status.id, summary)
+            await bot.edit_message_text(user_chat, status.id, summary, reply_markup=None)
         except Exception:
             try:
                 await bot.send_message(user_chat, summary)
@@ -820,37 +835,76 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
         shutil.rmtree(os.path.join(os.path.abspath(DOWNLOAD_DIR), str(uid)), ignore_errors=True)
 
 
-# ── commands ────────────────────────────────────────────────────────────────────
+# ── interface ───────────────────────────────────────────────────────────────────
+#
+# A link is the whole input, so pasting one is the whole interaction: the bot
+# recognises it and offers what can be done with it. The commands still work,
+# but nobody has to remember them.
+
+QUICK_COUNTS = (10, 50, 100, 500, 1000)
+
+
+def link_actions():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('⚡ This post', callback_data='run_single'),
+         InlineKeyboardButton('📦 Batch from here', callback_data='run_batch')],
+        [InlineKeyboardButton('✖️ Cancel', callback_data='run_drop')],
+    ])
+
+
+def count_choices():
+    rows, row = [], []
+    for value in QUICK_COUNTS:
+        row.append(InlineKeyboardButton(str(value), callback_data=f'run_n_{value}'))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton('✏️ Another number', callback_data='run_n_ask')])
+    rows.append([InlineKeyboardButton('✖️ Cancel', callback_data='run_drop')])
+    return InlineKeyboardMarkup(rows)
+
+
+def stop_button():
+    return InlineKeyboardMarkup([[InlineKeyboardButton('🛑 Stop', callback_data='run_stop')]])
+
+
+def describe(chat, msg_id, link_type):
+    where = 'private channel' if link_type == 'private' else f'@{chat}'
+    return f'**{where}** · post `{msg_id}`'
+
 
 @X.on_message(filters.command(['batch', 'single']) & filters.private)
+@safe
 async def process_cmd(client, message):
     uid = message.from_user.id
     if await sub(client, message) == 1:
         return
-
     if is_user_active(uid):
-        await message.reply_text('You already have a running task. Use /stop to cancel it.')
+        await message.reply_text(
+            '⏳ A run is already going. Stop it first.', reply_markup=stop_button())
         return
 
-    single = message.command[0] == 'single'
-    Z[uid] = {'step': 'single' if single else 'link'}
+    Z[uid] = {'step': 'awaiting_link', 'mode': message.command[0]}
     await message.reply_text(
-        'Send me the post link.' if single else 'Send me the **start** link.'
-    )
+        '🔗 Send me the post link.\n\n'
+        '__Tip: you can just paste a link any time — no command needed.__')
 
 
 @X.on_message(
     filters.command(['cancel', 'stop']) & filters.private
     & ~login_in_progress & ~settings_in_progress
 )
+@safe
 async def cancel_cmd(client, message):
     uid = message.from_user.id
     Z.pop(uid, None)
     if is_user_active(uid):
         ACTIVE[uid]['cancel'] = True
-        await message.reply_text('🛑 Cancelling — the running transfer will finish first.')
+        await message.reply_text('🛑 Stopping — the transfer in progress will finish first.')
     else:
-        await message.reply_text('No active batch found.')
+        await message.reply_text('Nothing is running.')
 
 
 @X.on_message(
@@ -858,45 +912,119 @@ async def cancel_cmd(client, message):
     & ~login_in_progress & ~settings_in_progress
     & ~filters.command([
         'start', 'help', 'status', 'set', 'settings',
-        'batch', 'single', 'cancel', 'stop',
-        'login', 'logout',
+        'batch', 'single', 'cancel', 'stop', 'login', 'logout',
     ])
 )
+@safe
 async def text_handler(client, message):
     uid = message.from_user.id
-    state = Z.get(uid)
-    if not state:
+    state = Z.get(uid) or {}
+
+    # Typing a number is only meaningful right after asking for one.
+    if state.get('step') == 'awaiting_count':
+        raw = message.text.strip()
+        if not raw.isdigit():
+            await message.reply_text('That is not a number. Send a count like `50`.')
+            return
+        count = int(raw)
+        if not 1 <= count <= BATCH_LIMIT:
+            await message.reply_text(f'Pick something between 1 and {BATCH_LIMIT}.')
+            return
+        Z.pop(uid, None)
+        await start_run(client, message, uid, state['chat'], state['id'],
+                        state['type'], count)
         return
 
-    step = state['step']
+    chat, msg_id, link_type = E(message.text)
+    if not chat or not msg_id:
+        if state.get('step') == 'awaiting_link':
+            await message.reply_text(
+                "❌ That does not look like a post link.\n\n"
+                "**Try one of these shapes**\n"
+                "`https://t.me/channel/123`\n"
+                "`https://t.me/c/1234567890/123`")
+        return          # stay quiet on ordinary chatter
 
-    if step in ('link', 'single'):
-        chat, msg_id, link_type = E(message.text)
-        if not chat or not msg_id:
-            await message.reply_text('❌ Invalid link format. Example: `https://t.me/c/1234567890/12`')
-            Z.pop(uid, None)
-            return
+    if await sub(client, message) == 1:
+        return
+    if is_user_active(uid):
+        await message.reply_text(
+            '⏳ A run is already going. Stop it first.', reply_markup=stop_button())
+        return
 
-        state.update({'chat': chat, 'id': msg_id, 'type': link_type})
-        if step == 'link':
-            state['step'] = 'count'
-            await message.reply_text('How many posts should I grab?')
-            return
+    mode = state.get('mode')
+    Z[uid] = {'step': 'chosen', 'chat': chat, 'id': msg_id, 'type': link_type}
 
+    # /single or /batch already said which one they meant.
+    if mode == 'single':
         Z.pop(uid, None)
         await start_run(client, message, uid, chat, msg_id, link_type, 1)
+        return
+    if mode == 'batch':
+        Z[uid]['step'] = 'awaiting_count'
+        await message.reply_text(f'📦 {describe(chat, msg_id, link_type)}\n\nHow many posts?',
+                                 reply_markup=count_choices())
+        return
 
-    elif step == 'count':
-        if not message.text.strip().isdigit():
-            await message.reply_text('Please send a valid number.')
-            return
-        count = int(message.text.strip())
-        if count < 1 or count > BATCH_LIMIT:
-            await message.reply_text(f'Pick a number between 1 and {BATCH_LIMIT}.')
-            return
+    await message.reply_text(f'🔗 {describe(chat, msg_id, link_type)}\n\nWhat should I do?',
+                             reply_markup=link_actions())
 
+
+@X.on_callback_query(filters.regex(r'^run_'))
+@safe
+async def run_actions(client, query):
+    uid = query.from_user.id
+    action = query.data[4:]
+    state = Z.get(uid)
+
+    if action == 'stop':
+        if is_user_active(uid):
+            ACTIVE[uid]['cancel'] = True
+            await query.answer('Stopping after the current transfer')
+        else:
+            await query.answer('Nothing is running')
+        return
+
+    if action == 'drop':
         Z.pop(uid, None)
-        await start_run(client, message, uid, state['chat'], state['id'], state['type'], count)
+        await query.message.edit_text('Cancelled.')
+        await query.answer()
+        return
+
+    if not state or 'chat' not in state:
+        await query.answer('That link has expired — send it again', show_alert=True)
+        return
+
+    if action == 'single':
+        Z.pop(uid, None)
+        await query.message.edit_text(f'⚡ {describe(state["chat"], state["id"], state["type"])}')
+        await query.answer()
+        await start_run(client, query.message, uid, state['chat'], state['id'],
+                        state['type'], 1)
+        return
+
+    if action == 'batch':
+        state['step'] = 'awaiting_count'
+        await query.message.edit_text(
+            f'📦 {describe(state["chat"], state["id"], state["type"])}\n\nHow many posts?',
+            reply_markup=count_choices())
+        await query.answer()
+        return
+
+    if action == 'n_ask':
+        state['step'] = 'awaiting_count'
+        await query.message.edit_text('✏️ Send me the number of posts.')
+        await query.answer()
+        return
+
+    if action.startswith('n_'):
+        count = int(action[2:])
+        Z.pop(uid, None)
+        await query.message.edit_text(
+            f'📦 {describe(state["chat"], state["id"], state["type"])} · {count} posts')
+        await query.answer()
+        await start_run(client, query.message, uid, state['chat'], state['id'],
+                        state['type'], count)
 
 
 async def start_run(client, message, uid, chat, msg_id, link_type, count):
@@ -904,12 +1032,15 @@ async def start_run(client, message, uid, chat, msg_id, link_type, count):
         await message.reply_text('You already have a running task. Use /stop first.')
         return
 
-    status = await message.reply_text('⚙️ Warming up the engines...')
+    status = await message.reply_text('⚙️ Getting ready…')
 
     bot = X                      # every upload goes out through this bot
     user_client = await get_uclient(uid)
     if not user_client and link_type == 'private':
-        await status.edit_text('Private links need /login first.')
+        await status.edit_text(
+            '🔑 **Login needed**\n\n'
+            'Private channels can only be read by a logged-in account.\n'
+            'Send /login to connect yours — it takes a minute.')
         return
 
     ACTIVE[uid] = {'cancel': False, 'total': count}

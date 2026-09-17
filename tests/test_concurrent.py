@@ -122,7 +122,7 @@ class Bot:
         self._id += 1
         return self._id
 
-    async def edit_message_text(self, chat, mid, text):
+    async def edit_message_text(self, chat, mid, text, reply_markup=None, **kw):
         self.status.append(text)
 
     async def send_video(self, dest, path, **kw):
