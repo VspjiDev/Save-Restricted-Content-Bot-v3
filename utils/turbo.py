@@ -29,6 +29,8 @@ from pyrogram.errors import AuthBytesInvalid, FloodWait
 from pyrogram.file_id import FileId, FileType
 from pyrogram.session import Auth, Session
 
+from config import TRANSFER_MEMORY_MB
+
 log = logging.getLogger(__name__)
 
 # upload.GetFile: limit must divide 1 MB and be a multiple of 4096, and a part
@@ -47,6 +49,43 @@ BIG_FILE_THRESHOLD = 10 * 1024 * 1024
 
 _pools = {}
 _pool_lock = asyncio.Lock()
+
+# Chunks live in RAM between arriving and being sent. Every one of them takes a
+# slot here, so total memory is bounded no matter how many files or streams are
+# running - which is what makes a high WORKERS setting safe.
+_MEMORY_SLOTS = max(4, (TRANSFER_MEMORY_MB * 1024 * 1024) // UPLOAD_PART)
+_memory = None
+_memory_queue = None
+
+SLOTS_PER_CHUNK = DOWNLOAD_PART // UPLOAD_PART
+
+
+def memory_gate():
+    global _memory
+    if _memory is None:                      # built on the running loop
+        _memory = asyncio.Semaphore(_MEMORY_SLOTS)
+    return _memory
+
+
+def _memory_turn():
+    global _memory_queue
+    if _memory_queue is None:
+        _memory_queue = asyncio.Lock()
+    return _memory_queue
+
+
+async def take_memory(slots=SLOTS_PER_CHUNK):
+    """Reserve a chunk's worth of budget, all of it or none.
+
+    Grabbing the slots one by one deadlocks: with the budget nearly spent,
+    several workers each hold one slot and wait forever for their second. Only
+    one worker reserves at a time, so it either completes or blocks alone while
+    the others keep draining and releasing.
+    """
+    gate = memory_gate()
+    async with _memory_turn():
+        for _ in range(slots):
+            await gate.acquire()
 
 # Why turbo last declined, so a slow run can be explained instead of guessed at.
 STATE = {'ready': False, 'streams': 0, 'dc': None, 'last_error': None, 'fallbacks': 0}
@@ -251,15 +290,10 @@ async def turbo_download(client, message, dest, streams, progress=None, progress
     try:
         os.ftruncate(fd, file_size)
 
-        async def worker(session):
-            nonlocal moved, failure
-            while failure is None:
-                # asyncio is single threaded and there is no await in between,
-                # so handing out part numbers this way is race free.
-                index = next(parts, None)
-                if index is None:
-                    return
+        gate = memory_gate()
 
+        async def fetch_one(session, index):
+                nonlocal moved, failure
                 offset = index * DOWNLOAD_PART
                 for attempt in range(5):
                     try:
@@ -287,11 +321,25 @@ async def turbo_download(client, message, dest, streams, progress=None, progress
 
                 chunk = result.bytes
                 if not chunk:
-                    continue
+                    return
 
                 _pwrite(fd, chunk, offset)
                 moved += len(chunk)
                 await _report(progress, progress_args, min(moved, file_size), file_size)
+
+        async def worker(session):
+            while failure is None:
+                # asyncio is single threaded and there is no await in between,
+                # so handing out part numbers this way is race free.
+                index = next(parts, None)
+                if index is None:
+                    return
+
+                await take_memory(1)       # held only until the chunk is on disk
+                try:
+                    await fetch_one(session, index)
+                finally:
+                    gate.release()          # one slot, taken atomically above
 
         await asyncio.gather(*(worker(s) for s in sessions[:streams]))
 
@@ -532,12 +580,19 @@ async def pipe_transfer(src, dst, message, dest, streams, on_down=None, on_up=No
     os.makedirs(os.path.dirname(dest) or '.', exist_ok=True)
     fd = os.open(dest, os.O_CREAT | os.O_WRONLY | os.O_TRUNC)
 
+    gate = memory_gate()
+
     async def down_worker(session):
         nonlocal downloaded, failure
         while failure is None:
             index = next(parts, None)
             if index is None:
                 return
+
+            # Take the memory before asking for the bytes, so the whole run can
+            # never hold more than the budget however many files are going.
+            await take_memory()
+
             offset = index * DOWNLOAD_PART
             for attempt in range(5):
                 try:
@@ -550,25 +605,36 @@ async def pipe_transfer(src, dst, message, dest, streams, on_down=None, on_up=No
                 except Exception as e:
                     if attempt == 4:
                         failure = e
+                        for _ in range(SLOTS_PER_CHUNK):
+                            gate.release()
                         return
                     await asyncio.sleep(0.5 * (attempt + 1))
             else:
                 failure = RuntimeError('chunk retries exhausted')
+                for _ in range(SLOTS_PER_CHUNK):
+                    gate.release()
                 return
 
             if not isinstance(result, raw.types.upload.File):
                 failure = RuntimeError('CDN redirect not supported')
+                for _ in range(SLOTS_PER_CHUNK):
+                    gate.release()
                 return
 
             chunk = result.bytes
             if not chunk:
+                gate.release(); gate.release()
                 continue
 
             _pwrite(fd, chunk, offset)
             downloaded += len(chunk)
             await _report(on_down, (), min(downloaded, file_size), file_size)
 
-            for step in range(0, len(chunk), UPLOAD_PART):
+            pieces = list(range(0, len(chunk), UPLOAD_PART))
+            # a short final chunk yields fewer parts than slots taken
+            for _ in range(SLOTS_PER_CHUNK - len(pieces)):
+                gate.release()
+            for step in pieces:
                 await queue.put((index * 2 + step // UPLOAD_PART,
                                  chunk[step:step + UPLOAD_PART]))
 
@@ -580,7 +646,7 @@ async def pipe_transfer(src, dst, message, dest, streams, on_down=None, on_up=No
                 if item is None:
                     return
                 if failure is not None:
-                    continue
+                    continue              # slot released in the finally below
                 part_index, data = item
                 for attempt in range(5):
                     try:
@@ -602,6 +668,8 @@ async def pipe_transfer(src, dst, message, dest, streams, on_down=None, on_up=No
                 uploaded += len(data)
                 await _report(on_up, (), min(uploaded, file_size), file_size)
             finally:
+                if item is not None:
+                    gate.release()        # this part's memory is free again
                 queue.task_done()
 
     try:

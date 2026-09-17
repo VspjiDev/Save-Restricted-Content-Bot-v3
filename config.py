@@ -93,9 +93,11 @@ JOIN_LINK = os.getenv('JOIN_LINK', '')   # optional updates channel shown on /st
 # ░ SPEED / PERFORMANCE KNOBS  🚀
 # ════════════════════════════════════════════════════════════════════════════════
 
-# How many files are downloaded in parallel inside one batch. Uploads always stay
-# in order, only the downloads run ahead of the uploader.
-WORKERS = int(os.getenv('WORKERS', '4'))
+# How many posts are transferred at once. Downloads and uploads both run in
+# parallel across them; only the message creation stays in source order. Scales
+# close to linearly, and TRANSFER_MEMORY_MB below keeps RAM bounded however high
+# this goes - so the real ceiling is disk, since each one holds a whole file.
+WORKERS = int(os.getenv('WORKERS', '6'))
 
 # Connections opened per file by the turbo engine (utils/turbo.py). Pyrogram on
 # its own moves one chunk at a time over one connection, which caps a transfer at
@@ -114,6 +116,13 @@ BATCH_DELAY = float(os.getenv('BATCH_DELAY', '0'))
 # How often the live progress message is edited (seconds). Every edit costs an
 # API round trip, so a lower value looks nicer but transfers slightly slower.
 PROGRESS_INTERVAL = float(os.getenv('PROGRESS_INTERVAL', '6'))
+
+# Hard ceiling on how much file data may sit in RAM across every transfer at
+# once. Without it, memory would be WORKERS x TURBO_STREAMS x chunk size, so
+# raising either could push the dyno into swapping (Heroku R14) and make
+# everything slower. With it, WORKERS is safe to raise: transfers simply share
+# the budget. 192 MB suits a 512 MB dyno; raise it on a bigger box.
+TRANSFER_MEMORY_MB = int(os.getenv('TRANSFER_MEMORY_MB', '192'))
 
 # Max messages allowed in a single /batch run.
 BATCH_LIMIT = int(os.getenv('BATCH_LIMIT', '10000'))

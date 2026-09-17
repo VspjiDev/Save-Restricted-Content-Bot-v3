@@ -81,7 +81,18 @@ only the message creation needs to be ordered — the bytes can go up whenever. 
 files are uploaded during the parallel stage and the ordered stage just attaches
 the waiting handle. On a batch of 20 PDFs taking 0.8s to download and 1.2s to
 upload each, that is 24.8s with serial uploads and **10.0s at `WORKERS=4`**,
-same order out the other end. `WORKERS` is the lever here.
+same order out the other end. `WORKERS` is the lever here, and it scales close
+to linearly — 24 posts at 0.6s down / 0.9s up each:
+
+| `WORKERS` | 1 | 2 | 4 | 6 | 8 | 12 |
+|---|---|---|---|---|---|---|
+| time | 36.1s | 18.0s | 9.0s | 6.0s | 4.5s | 3.0s |
+
+RAM does not scale with it: `TRANSFER_MEMORY_MB` caps the file data held in
+memory across every transfer, so raising `WORKERS` makes transfers share that
+budget rather than each taking their own. The real ceiling is **disk** — each
+worker holds one whole file, so 8–12 is fine for PDFs and clips while multi-GB
+videos want 2–3.
 
 **4. Skip work that Telegram already did.** A video's duration and dimensions
 come from the source message instead of ffprobe, and its thumbnail is reused
@@ -152,8 +163,9 @@ at your app URL, which doubles as a health check.
 * **Heroku restarts every dyno about once a day.** A batch running at that
   moment stops where it is; just run it again.
 * **The disk is small and temporary** (~1 GB, wiped on restart). Each worker
-  holds one whole file, so drop `WORKERS` to `2` if you mostly move multi-GB
-  videos; for ordinary PDFs and clips `4` is a much better trade. Custom thumbnails are also lost on restart — logins are
+  holds one whole file, so drop `WORKERS` to `2`–`3` if you mostly move multi-GB
+  videos; for ordinary PDFs and clips `8` is a much better trade. RAM is capped
+  separately by `TRANSFER_MEMORY_MB`, so it is disk you have to think about. Custom thumbnails are also lost on restart — logins are
   not, those live in MongoDB.
 * **Bandwidth is the real speed limit.** The turbo engine will use whatever the
   dyno gives it, but a Heroku dyno is not a 1 Gbps box, so expect well under the
@@ -199,7 +211,8 @@ it. Without it the bot still works, just without generated thumbnails.
 |---|---|---|
 | `TURBO_STREAMS` | `16` | Connections per file — the main speed lever |
 | `TURBO_DISABLED` | `0` | Set to `1` to fall back to plain pyrogram transfers |
-| `WORKERS` | `4` | Files handled in parallel — downloads *and* uploads. Main lever for batches of small files |
+| `WORKERS` | `6` | Posts transferred at once — downloads *and* uploads. The main speed lever |
+| `TRANSFER_MEMORY_MB` | `192` | Ceiling on file data held in RAM across all transfers |
 | `BATCH_DELAY` | `0` | Seconds between posts; raise only if you hit FloodWait |
 | `BATCH_LIMIT` | `10000` | Max posts per `/batch` |
 | `PROGRESS_INTERVAL` | `6` | Seconds between progress edits |

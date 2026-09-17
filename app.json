@@ -72,8 +72,8 @@
       "required": false
     },
     "WORKERS": {
-      "description": "Files handled in parallel - this now controls upload concurrency too, so it is the main lever for batches of small files. Lower it to 2 if you mostly move multi-GB videos, since each worker holds one file on the dyno\u2019s ~1GB disk",
-      "value": "4",
+      "description": "Posts transferred at once - the main speed lever, and close to linear. RAM is capped by TRANSFER_MEMORY_MB, so the limit is disk: each one holds a whole file on the dyno\u2019s ~1GB. 8-12 for PDFs and clips, 2-3 for multi-GB videos",
+      "value": "8",
       "required": false
     },
     "BATCH_DELAY": {
@@ -109,6 +109,11 @@
     "DOWNLOAD_DIR": {
       "description": "Temp media directory",
       "value": "downloads",
+      "required": false
+    },
+    "TRANSFER_MEMORY_MB": {
+      "description": "Ceiling on file data held in RAM across all transfers. 192 suits a 512MB dyno",
+      "value": "192",
       "required": false
     }
   }
