@@ -248,6 +248,7 @@ class Tracker:
         self.total = total
         self.done = self.ok = self.fail = 0
         self.active = 0          # posts being transferred right now
+        self.probe = None        # how many are prepared and waiting to be sent
         self.downloaded = self.uploaded = 0
         self.start = time.time()
         self.note = 'starting'
@@ -270,26 +271,30 @@ class Tracker:
         return progress
 
     def render(self):
-        moved = self.downloaded + self.uploaded
         elapsed = max(time.time() - self.start, 0.001)
-        speed = moved / elapsed
         filled = int((self.done / self.total) * 10) if self.total else 0
         bar = '▰' * filled + '▱' * (10 - filled)
         percent = (self.done / self.total * 100) if self.total else 0
 
         eta = '--:--'
         if self.done and self.done < self.total:
-            remaining = (elapsed / self.done) * (self.total - self.done)
-            eta = time.strftime('%M:%S', time.gmtime(remaining))
+            eta = duration((elapsed / self.done) * (self.total - self.done))
 
+        # Separate rates, because one combined number hides which direction is
+        # actually the slow one.
+        down_rate = human_bytes(self.downloaded / elapsed)
+        up_rate = human_bytes(self.uploaded / elapsed)
+
+        waiting = self.probe() if self.probe else 0
         return (
             '🚀 **Rocket Forward**\n\n'
-            f'`[{bar}]` {percent:.0f}%\n'
+            f'`[{bar}]` {percent:.1f}%\n'
             f'📦 **Posts**: {self.done}/{self.total}  ·  ✅ {self.ok}  ·  ❌ {self.fail}\n'
-            f'⚡ **In flight**: {self.active} at once\n'
-            f'⬇️ {human_bytes(self.downloaded)}   ⬆️ {human_bytes(self.uploaded)}\n'
-            f'⚡ **Speed**: {human_bytes(speed)}/s\n'
-            f'⏱ **Elapsed**: {time.strftime("%M:%S", time.gmtime(elapsed))}  ·  **ETA**: {eta}\n'
+            f'⚡ **Transferring**: {self.active} of {WORKERS}  ·  '
+            f'**waiting to send**: {waiting}\n'
+            f'⬇️ {human_bytes(self.downloaded)} ({down_rate}/s)\n'
+            f'⬆️ {human_bytes(self.uploaded)} ({up_rate}/s)\n'
+            f'⏱ **Elapsed**: {duration(elapsed)}  ·  **ETA**: {eta}\n'
             f'📄 {self.note}'
         )
 
@@ -331,6 +336,18 @@ async def with_flood(factory, retries: int = 3):
 
 
 # ── per message work ────────────────────────────────────────────────────────────
+
+def duration(seconds):
+    """h:mm:ss, because %M:%S silently drops the hours.
+
+    A long batch was reporting an ETA of minutes when the real answer was half a
+    day, and an elapsed time that reset to 00:00 every hour.
+    """
+    seconds = int(max(seconds, 0))
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f'{hours}:{minutes:02d}:{secs:02d}' if hours else f'{minutes:02d}:{secs:02d}'
+
 
 def build_caption(message, settings):
     """Returns (caption, overflow).
@@ -723,6 +740,8 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
             finally:
                 tracker.active -= 1
 
+    tracker.probe = lambda: sum(1 for task in tasks.values() if task.done())
+
     try:
         for index in range(count):
             if should_cancel(uid):
@@ -774,7 +793,7 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
         tracker.stop()
         updater.cancel()
 
-        elapsed = time.strftime('%M:%S', time.gmtime(time.time() - tracker.start))
+        elapsed = duration(time.time() - tracker.start)
         moved = human_bytes(tracker.downloaded + tracker.uploaded)
         summary = (
             ('🛑 **Cancelled**' if should_cancel(uid) else '✅ **Completed**') + '\n\n'
