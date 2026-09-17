@@ -457,6 +457,21 @@ async def prepare_message(source, message, uid, settings, tracker, via_bot,
     if message.video:
         thumb_path = await fetch_source_thumb(source, message, uid)
 
+    # Send the bytes up while we are still in the parallel stage, so several
+    # files upload at once. Only the message creation has to stay in order, and
+    # that is all the ordered stage does once the handle is waiting for it.
+    # pipe_transfer has already done this for the files it handled.
+    pre_upload = getattr(bot, 'save_file', None)
+    if pre_upload is not None and not turbo.has_upload(path):
+        try:
+            if os.path.getsize(path) <= TWO_GB:      # >2GB goes via the userbot
+                handle = await pre_upload(path, progress=tracker.callback('up'))
+                if handle is not None:
+                    turbo.register_upload(path, handle)
+        except Exception as e:
+            # Not fatal: the ordered stage will simply upload it itself.
+            print(f'Pre-upload failed for post {message.id}, will retry inline: {e}')
+
     return {'kind': 'file', 'message': message, 'caption': caption, 'path': path,
             'overflow': overflow, 'thumb_path': thumb_path}
 
@@ -624,6 +639,8 @@ async def upload_oversized(bot, plan, uid, dest, reply_to, tracker,
 
 
 def cleanup(path, thumb=None, uid=None):
+    if path:
+        turbo.take_upload(path)          # drop any pre-uploaded handle
     for candidate in (path, thumb):
         if not candidate:
             continue

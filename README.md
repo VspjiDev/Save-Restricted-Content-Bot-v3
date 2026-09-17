@@ -76,7 +76,14 @@ parts, and parts may be sent in any order, so a part goes out the moment it
 arrives. With each direction capped at 6 MB/s, a 120 MB file takes 40s one after
 the other and **20s together** — the same cap, half the wall clock.
 
-**3. Skip work that Telegram already did.** A video's duration and dimensions
+**3. Upload several files at once.** Posts have to *arrive* in source order, but
+only the message creation needs to be ordered — the bytes can go up whenever. So
+files are uploaded during the parallel stage and the ordered stage just attaches
+the waiting handle. On a batch of 20 PDFs taking 0.8s to download and 1.2s to
+upload each, that is 24.8s with serial uploads and **10.0s at `WORKERS=4`**,
+same order out the other end. `WORKERS` is the lever here.
+
+**4. Skip work that Telegram already did.** A video's duration and dimensions
 come from the source message instead of ffprobe, and its thumbnail is reused
 instead of ffmpeg seeking and decoding a frame out of a multi-GB file.
 
@@ -138,9 +145,9 @@ at your app URL, which doubles as a health check.
   pinger at your app URL.
 * **Heroku restarts every dyno about once a day.** A batch running at that
   moment stops where it is; just run it again.
-* **The disk is small and temporary** (~1 GB, wiped on restart). `WORKERS`
-  defaults to `2` on Heroku for that reason, since each worker holds one whole
-  file while it uploads. Custom thumbnails are also lost on restart — logins are
+* **The disk is small and temporary** (~1 GB, wiped on restart). Each worker
+  holds one whole file, so drop `WORKERS` to `2` if you mostly move multi-GB
+  videos; for ordinary PDFs and clips `4` is a much better trade. Custom thumbnails are also lost on restart — logins are
   not, those live in MongoDB.
 * **Bandwidth is the real speed limit.** The turbo engine will use whatever the
   dyno gives it, but a Heroku dyno is not a 1 Gbps box, so expect well under the
@@ -186,7 +193,7 @@ it. Without it the bot still works, just without generated thumbnails.
 |---|---|---|
 | `TURBO_STREAMS` | `16` | Connections per file — the main speed lever |
 | `TURBO_DISABLED` | `0` | Set to `1` to fall back to plain pyrogram transfers |
-| `WORKERS` | `4` | Files downloaded in parallel |
+| `WORKERS` | `4` | Files handled in parallel — downloads *and* uploads. Main lever for batches of small files |
 | `BATCH_DELAY` | `0` | Seconds between posts; raise only if you hit FloodWait |
 | `BATCH_LIMIT` | `10000` | Max posts per `/batch` |
 | `PROGRESS_INTERVAL` | `6` | Seconds between progress edits |
@@ -201,7 +208,8 @@ it. Without it the bot still works, just without generated thumbnails.
 ### Tuning
 
 * Fast VPS (1 Gbps+) → `TURBO_STREAMS=24`, `WORKERS=6`
-* Heroku or a small box → `TURBO_STREAMS=8`, `WORKERS=2`
+* Throttled by Telegram (single-digit MB/s with turbo live) → raise `WORKERS`, not `TURBO_STREAMS`
+* Mostly multi-GB videos on a small disk → `WORKERS=2`
 * Getting FloodWait → lower `TURBO_STREAMS` first, then set `BATCH_DELAY=2`
 
 Each worker holds one file on disk, so peak temp usage is about

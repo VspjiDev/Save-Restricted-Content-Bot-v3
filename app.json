@@ -72,8 +72,8 @@
       "required": false
     },
     "WORKERS": {
-      "description": "How many files are downloaded in parallel per batch. Keep this low on Heroku, the dyno only has ~1GB of temp disk",
-      "value": "2",
+      "description": "Files handled in parallel - this now controls upload concurrency too, so it is the main lever for batches of small files. Lower it to 2 if you mostly move multi-GB videos, since each worker holds one file on the dyno\u2019s ~1GB disk",
+      "value": "4",
       "required": false
     },
     "BATCH_DELAY": {

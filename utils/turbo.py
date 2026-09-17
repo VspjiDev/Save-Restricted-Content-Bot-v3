@@ -481,6 +481,10 @@ def take_upload(path):
     return _uploaded.pop(os.path.abspath(path), None)
 
 
+def has_upload(path):
+    return os.path.abspath(path) in _uploaded
+
+
 def rekey_upload(old_path, new_path):
     handle = _uploaded.pop(os.path.abspath(old_path), None)
     if handle is not None:
