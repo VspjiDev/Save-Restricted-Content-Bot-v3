@@ -112,8 +112,8 @@
       "required": false
     },
     "TRANSFER_MEMORY_MB": {
-      "description": "Ceiling on file data held in RAM across all transfers. 192 suits a 512MB dyno",
-      "value": "192",
+      "description": "Ceiling on file data held in RAM across all transfers. Leave empty to size it from the dyno automatically",
+      "value": "",
       "required": false
     }
   }

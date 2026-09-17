@@ -90,7 +90,9 @@ to linearly — 24 posts at 0.6s down / 0.9s up each:
 
 RAM does not scale with it: `TRANSFER_MEMORY_MB` caps the file data held in
 memory across every transfer, so raising `WORKERS` makes transfers share that
-budget rather than each taking their own. The real ceiling is **disk** — each
+budget rather than each taking their own. It is sized from the container's own
+memory limit — 179 MB on a 512 MB dyno, 358 MB on a 1 GB one — so moving to a
+bigger dyno takes effect without changing anything. The real ceiling is **disk** — each
 worker holds one whole file, so 8–12 is fine for PDFs and clips while multi-GB
 videos want 2–3.
 
@@ -212,7 +214,7 @@ it. Without it the bot still works, just without generated thumbnails.
 | `TURBO_STREAMS` | `16` | Connections per file — the main speed lever |
 | `TURBO_DISABLED` | `0` | Set to `1` to fall back to plain pyrogram transfers |
 | `WORKERS` | `6` | Posts transferred at once — downloads *and* uploads. The main speed lever |
-| `TRANSFER_MEMORY_MB` | `192` | Ceiling on file data held in RAM across all transfers |
+| `TRANSFER_MEMORY_MB` | auto | Ceiling on file data held in RAM across all transfers. Sized from the dyno (~35% of it) unless you set it |
 | `BATCH_DELAY` | `0` | Seconds between posts; raise only if you hit FloodWait |
 | `BATCH_LIMIT` | `10000` | Max posts per `/batch` |
 | `PROGRESS_INTERVAL` | `6` | Seconds between progress edits |

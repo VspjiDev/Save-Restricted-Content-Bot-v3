@@ -6,7 +6,10 @@ from pyrogram import filters
 from pyrogram.errors import UserNotParticipant
 from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 
-from config import BRAND, FORCE_SUB, JOIN_LINK, OWNER_ID, TURBO_DISABLED, TURBO_STREAMS, WORKERS
+from config import (
+    BRAND, FORCE_SUB, JOIN_LINK, OWNER_ID,
+    TRANSFER_MEMORY_MB, TURBO_DISABLED, TURBO_STREAMS, WORKERS,
+)
 from shared_client import app
 from utils import turbo
 from utils.func import get_user_data
@@ -110,7 +113,8 @@ async def status_handler(client, message):
         f'**{BRAND} — your status**\n\n'
         f"**Login:** {'✅ Active' if data.get('session_string') else '❌ Inactive'}\n"
         f"**Target chat:** `{data.get('chat_id') or 'this chat'}`\n"
-        f'**Parallel files:** {WORKERS}  ·  **Streams/file:** {TURBO_STREAMS}\n'
+        f'**Parallel posts:** {WORKERS}  ·  **Streams/file:** {TURBO_STREAMS}\n'
+        f'**Memory budget:** {TRANSFER_MEMORY_MB} MB\n'
         f'**Turbo engine:** {engine}'
     )
 

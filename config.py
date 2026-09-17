@@ -119,10 +119,48 @@ PROGRESS_INTERVAL = float(os.getenv('PROGRESS_INTERVAL', '6'))
 
 # Hard ceiling on how much file data may sit in RAM across every transfer at
 # once. Without it, memory would be WORKERS x TURBO_STREAMS x chunk size, so
-# raising either could push the dyno into swapping (Heroku R14) and make
+# raising either could push the container into swapping (Heroku R14) and make
 # everything slower. With it, WORKERS is safe to raise: transfers simply share
-# the budget. 192 MB suits a 512 MB dyno; raise it on a bigger box.
-TRANSFER_MEMORY_MB = int(os.getenv('TRANSFER_MEMORY_MB', '192'))
+# the budget.
+#
+# Sized from the container's own memory limit, so moving to a bigger dyno takes
+# effect on its own. Set TRANSFER_MEMORY_MB to override.
+
+def _container_memory_mb():
+    """How much memory this container is actually allowed, in MB."""
+    for path, unlimited in (
+        ('/sys/fs/cgroup/memory.max', 'max'),                    # cgroup v2
+        ('/sys/fs/cgroup/memory/memory.limit_in_bytes', None),   # cgroup v1
+    ):
+        try:
+            with open(path) as fh:
+                raw = fh.read().strip()
+            if raw == unlimited:
+                continue
+            value = int(raw)
+            # v1 reports a huge sentinel rather than saying "no limit"
+            if 0 < value < (1 << 46):
+                return value // (1024 * 1024)
+        except (OSError, ValueError):
+            continue
+
+    try:
+        with open('/proc/meminfo') as fh:
+            for line in fh:
+                if line.startswith('MemTotal:'):
+                    return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 512          # assume the smallest dyno rather than over-committing
+
+
+def _default_transfer_memory():
+    # About a third of the container, which leaves room for Python, pyrogram and
+    # everything else while still being a useful buffer.
+    return max(128, min(1024, int(_container_memory_mb() * 0.35)))
+
+
+TRANSFER_MEMORY_MB = _int('TRANSFER_MEMORY_MB') or _default_transfer_memory()
 
 # Max messages allowed in a single /batch run.
 BATCH_LIMIT = int(os.getenv('BATCH_LIMIT', '10000'))

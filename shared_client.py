@@ -7,7 +7,10 @@ import sys
 
 from pyrogram import Client
 
-from config import API_ID, API_HASH, BOT_TOKEN, STRING, TURBO_DISABLED, TURBO_STREAMS, WORKERS
+from config import (
+    API_ID, API_HASH, BOT_TOKEN, STRING,
+    TRANSFER_MEMORY_MB, TURBO_DISABLED, TURBO_STREAMS, WORKERS,
+)
 from utils import turbo
 
 
@@ -84,5 +87,7 @@ async def start_client():
     if not TURBO_DISABLED:
         # Prove the pool works now rather than discovering it file by file.
         await turbo.warmup(app, TURBO_STREAMS)
+
+    print(f'Parallel posts: {WORKERS}  ·  transfer memory budget: {TRANSFER_MEMORY_MB} MB')
 
     return app, userbot
