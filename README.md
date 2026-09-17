@@ -140,6 +140,12 @@ at your app URL, which doubles as a health check.
 
 **Worth knowing before you deploy:**
 
+* **Keep the dyno count at 1.** Scaling `web` above 1 runs several copies of the
+  bot on the same token: every command gets answered once per copy and they
+  throttle each other into FloodWait. To run more transfers at once raise the
+  `WORKERS` **config var** instead — it is not the dyno count. Extra copies now
+  detect each other and stay idle rather than duplicating replies, but they
+  still cost money, so scale back to 1.
 * **Eco dynos sleep** after 30 minutes without a web request, and a sleeping bot
   answers nothing. Either use a Basic dyno (no sleeping) or point an uptime
   pinger at your app URL.

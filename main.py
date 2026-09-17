@@ -85,11 +85,20 @@ async def load_and_run_plugins():
 async def main():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     start_health_server()
+
+    # Several copies on one token answer every command several times over and
+    # throttle each other into FloodWait, so only the lock holder goes live.
+    from utils import single
+    await single.acquire()
+    heartbeat = asyncio.create_task(single.heartbeat())
+
     await load_and_run_plugins()
     print(f'{BRAND} is up. Waiting for links...')
     try:
         await asyncio.Event().wait()
     finally:
+        heartbeat.cancel()
+        await single.release()
         from utils.turbo import close_pools
         await close_pools()
 
