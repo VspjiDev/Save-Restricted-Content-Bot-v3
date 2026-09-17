@@ -247,6 +247,7 @@ class Tracker:
         self.message_id = message_id
         self.total = total
         self.done = self.ok = self.fail = 0
+        self.active = 0          # posts being transferred right now
         self.downloaded = self.uploaded = 0
         self.start = time.time()
         self.note = 'starting'
@@ -285,6 +286,7 @@ class Tracker:
             '🚀 **Rocket Forward**\n\n'
             f'`[{bar}]` {percent:.0f}%\n'
             f'📦 **Posts**: {self.done}/{self.total}  ·  ✅ {self.ok}  ·  ❌ {self.fail}\n'
+            f'⚡ **In flight**: {self.active} at once\n'
             f'⬇️ {human_bytes(self.downloaded)}   ⬆️ {human_bytes(self.uploaded)}\n'
             f'⚡ **Speed**: {human_bytes(speed)}/s\n'
             f'⏱ **Elapsed**: {time.strftime("%M:%S", time.gmtime(elapsed))}  ·  **ETA**: {eta}\n'
@@ -710,6 +712,7 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
         async with semaphore:
             if should_cancel(uid):
                 return {'kind': 'skip'}
+            tracker.active += 1
             try:
                 return await prepare_message(source, message, uid, settings, tracker,
                                              via_bot, user_copy_ok, bot)
@@ -717,6 +720,8 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
                 kind = getattr(message.media, 'name', message.media)
                 return {'kind': 'failed',
                         'reason': f'post {message.id} ({kind}): {type(e).__name__}: {e}'}
+            finally:
+                tracker.active -= 1
 
     try:
         for index in range(count):
@@ -775,7 +780,7 @@ async def run_batch(bot, user_client, chat, link_type, start_id, count, uid, use
             ('🛑 **Cancelled**' if should_cancel(uid) else '✅ **Completed**') + '\n\n'
             f'📦 Posts: {tracker.ok}/{count} sent · ❌ {tracker.fail} failed\n'
             f'📊 Transferred: {moved}\n'
-            f'⏱ Took: {elapsed}'
+            f'⏱ Took: {elapsed}  ·  {WORKERS} at a time'
         )
         if problems:
             shown = '\n'.join(f'· `{p[:150]}`' for p in problems[:3])
